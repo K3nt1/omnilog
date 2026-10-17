@@ -13,13 +13,16 @@
 -- user_id partout évite une migration pénible si tu ouvres à des proches.
 -- ---------------------------------------------------------------------
 CREATE TABLE users (
-  id            INTEGER PRIMARY KEY,
-  display_name  TEXT NOT NULL,
-  timezone      TEXT NOT NULL DEFAULT 'Europe/Paris',  -- sert à envoyer les rappels à la bonne heure locale
-  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  id             INTEGER PRIMARY KEY,
+  display_name   TEXT NOT NULL,
+  timezone       TEXT NOT NULL DEFAULT 'Europe/Paris',  -- fuseau IANA, sert à envoyer les rappels à la bonne heure locale
+  timezone_auto  INTEGER NOT NULL DEFAULT 1 CHECK (timezone_auto IN (0, 1)),
+                 -- 1 = mis à jour automatiquement depuis le fuseau du navigateur à chaque visite
+                 -- 0 = fixé manuellement dans les paramètres
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-INSERT INTO users (id, display_name) VALUES (1, 'Moi');
+INSERT INTO users (id, display_name, timezone) VALUES (1, 'Moi', 'Asia/Nicosia');
 
 
 -- ---------------------------------------------------------------------
