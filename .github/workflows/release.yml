@@ -22,7 +22,7 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           # PAT obligatoire : avec GITHUB_TOKEN, la CI ne se lancerait pas sur la Release PR.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
