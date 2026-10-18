@@ -58,6 +58,33 @@ export async function searchTmdb(token: string, query: string, types: Set<MediaT
   });
 }
 
+/** Résultat brut de /search/movie, utilisé par l'import pour retrouver un film. */
+export interface TmdbMovieHit {
+  id: number;
+  title: string;
+  original_title: string;
+  release_date?: string;
+  poster_path?: string | null;
+}
+
+/**
+ * Recherche de films par titre (+ année). En anglais par défaut : Letterboxd
+ * exporte les titres anglais, la comparaison est donc bien plus fiable.
+ */
+export async function searchTmdbMovieHits(
+  token: string,
+  query: string,
+  year: number | null,
+  language = "en-US",
+): Promise<TmdbMovieHit[]> {
+  const params: Record<string, string> = { query, include_adult: "false", language };
+  if (year) params.year = String(year);
+  const data = await tmdb<{ results: TmdbMovieHit[] }>(token, "/search/movie", params);
+  return data.results;
+}
+
+export const tmdbPosterUrl = poster;
+
 interface TmdbGenre {
   name: string;
 }
