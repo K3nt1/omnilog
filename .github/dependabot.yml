@@ -22,3 +22,10 @@ updates:
       # Les mises à jour mineures et correctifs arrivent en une seule PR groupée
       mineures-et-correctifs:
         update-types: [minor, patch]
+    ignore:
+      # typescript-eslint (via eslint-config-next) n'accepte que typescript < 6.1
+      - dependency-name: "typescript"
+        versions: [">= 6.1"]
+      # Les types Node doivent suivre la version majeure de Node utilisée (22)
+      - dependency-name: "@types/node"
+        versions: [">= 23"]
