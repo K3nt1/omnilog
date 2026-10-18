@@ -38,7 +38,7 @@ jobs:
   files:
     name: Liste des fichiers modifiés
     runs-on: ubuntu-latest
-    if: github.event.action != 'edited'
+    if: github.event.action != 'edited' && github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/github-script@v8
         with:
