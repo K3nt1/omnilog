@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.action != 'edited' && github.actor != 'dependabot[bot]'
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@v9
         with:
           script: |
             const marker = '<!-- files-changed-bot -->';
