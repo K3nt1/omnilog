@@ -43,7 +43,14 @@ export interface LetterboxdFilm {
   watches: LetterboxdWatch[];
   /** Choix manuel fait dans l'écran de validation. */
   forceTmdbId?: string;
+  /** Type de la fiche choisie : une entrée Letterboxd peut correspondre à une série chez TMDB. */
+  forceType?: "movie" | "tv";
+  /** Accepter que ce film rejoigne une fiche déjà associée à une autre entrée Letterboxd. */
+  allowMerge?: boolean;
 }
+
+/** Clé d'une entrée Letterboxd dans import_links : lien du film, ou clé construite pour les orphelins. */
+export const letterboxdLinkKey = (film: Pick<LetterboxdFilm, "uri" | "key">) => film.uri ?? film.key;
 
 export type ImportRequest =
   | { source: "mal"; items: MalImportItem[] }
@@ -53,13 +60,14 @@ export type ImportRequest =
 
 export interface MatchCandidate {
   tmdbId: string;
+  mediaType: "movie" | "tv";
   title: string;
   originalTitle: string | null;
   year: number | null;
   posterUrl: string | null;
 }
 
-export type ImportItemStatus = "imported" | "updated" | "ambiguous" | "not_found" | "error";
+export type ImportItemStatus = "imported" | "updated" | "ambiguous" | "not_found" | "conflict" | "error";
 
 export interface ImportItemResult {
   key: string;
@@ -67,7 +75,19 @@ export interface ImportItemResult {
   status: ImportItemStatus;
   message?: string;
   candidates?: MatchCandidate[];
+  /** Fiche TMDB retenue (ou en conflit). */
+  tmdbId?: string;
+  tmdbType?: "movie" | "tv";
+  /** Conflit : clé de l'autre entrée Letterboxd déjà associée à cette fiche. */
+  conflictWith?: string;
 }
+
+export interface ImportCheckResponse {
+  missing: string[]; // clés import_links absentes de la base
+}
+
+/** Nombre maximum de clés vérifiées par appel à /api/import/check. */
+export const IMPORT_CHECK_CHUNK = 450;
 
 export interface ImportResponse {
   results: ImportItemResult[];

@@ -53,7 +53,9 @@ function isLetterboxdFilm(v: unknown): v is LetterboxdFilm {
         w.tags.every(isString) &&
         isNullableString(w.review),
     ) &&
-    (f.forceTmdbId === undefined || (isString(f.forceTmdbId) && /^\d{1,10}$/.test(f.forceTmdbId)))
+    (f.forceTmdbId === undefined || (isString(f.forceTmdbId) && /^\d{1,10}$/.test(f.forceTmdbId))) &&
+    (f.forceType === undefined || f.forceType === "movie" || f.forceType === "tv") &&
+    (f.allowMerge === undefined || typeof f.allowMerge === "boolean")
   );
 }
 

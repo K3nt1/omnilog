@@ -38,8 +38,20 @@ CREATE UNIQUE INDEX uq_progress_external_ref
 
 
 -- ---------------------------------------------------------------------
--- Index sur le lien Letterboxd d'une œuvre : à la reprise d'un import, les films
--- déjà reconnus sont retrouvés instantanément, sans nouvelle recherche TMDB.
+-- import_links : quelle entrée d'un export (ex. lien boxd.it d'un film Letterboxd)
+-- correspond à quelle œuvre du catalogue.
+--   * à la reprise d'un import, les entrées déjà reconnues sont retrouvées sans
+--     nouvelle recherche TMDB ;
+--   * plusieurs entrées peuvent pointer vers la même œuvre (épisodes d'une série
+--     listés séparément sur Letterboxd, par exemple) ;
+--   * permet de vérifier ce qui manque et d'annuler une correspondance.
 -- ---------------------------------------------------------------------
-CREATE INDEX idx_media_letterboxd
-  ON media (json_extract(external_links_json, '$.letterboxd'));
+CREATE TABLE import_links (
+  source        TEXT NOT NULL CHECK (source IN ('letterboxd', 'mal', 'serializd', 'backloggd')),
+  external_key  TEXT NOT NULL,
+  media_id      INTEGER NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (source, external_key)
+) WITHOUT ROWID;
+
+CREATE INDEX idx_import_links_media ON import_links (source, media_id);

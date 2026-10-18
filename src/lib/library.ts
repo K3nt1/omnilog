@@ -128,35 +128,118 @@ export async function addToLibrary(
 // Import (Letterboxd, MyAnimeList)
 // ---------------------------------------------------------------------
 
-/** Œuvres déjà reconnues lors d'un import précédent, retrouvées par leur lien Letterboxd. */
-export async function findMediaIdsByLetterboxdUri(db: D1Database, uris: string[]): Promise<Map<string, number>> {
+export type ImportSource = "letterboxd" | "mal" | "serializd" | "backloggd";
+
+/** D1 accepte au plus 100 paramètres par requête : on découpe les listes. */
+const PARAM_CHUNK = 90;
+const chunks = <T,>(items: T[], size = PARAM_CHUNK) =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
+
+/** Entrées d'export déjà reconnues : clé externe -> identifiant de l'œuvre. */
+export async function findImportLinks(
+  db: D1Database,
+  source: ImportSource,
+  keys: string[],
+): Promise<Map<string, number>> {
   const found = new Map<string, number>();
-  const unique = [...new Set(uris)];
-  if (unique.length === 0) return found;
-  // L'expression doit être identique à celle de l'index idx_media_letterboxd (migration 0004).
-  const { results } = await db
-    .prepare(
-      `SELECT id, json_extract(external_links_json, '$.letterboxd') AS uri
-       FROM media
-       WHERE json_extract(external_links_json, '$.letterboxd') IN (${unique.map(() => "?").join(", ")})`,
-    )
-    .bind(...unique)
-    .all<{ id: number; uri: string }>();
-  for (const row of results) found.set(row.uri, row.id);
+  for (const part of chunks([...new Set(keys)])) {
+    const { results } = await db
+      .prepare(
+        `SELECT external_key, media_id FROM import_links
+         WHERE source = ? AND external_key IN (${part.map(() => "?").join(", ")})`,
+      )
+      .bind(source, ...part)
+      .all<{ external_key: string; media_id: number }>();
+    for (const row of results) found.set(row.external_key, row.media_id);
+  }
   return found;
 }
 
-/** Ajoute ou remplace un lien vers un site officiel dans media.external_links_json. */
-export async function setExternalLink(
+/** Une autre entrée d'export pointe-t-elle déjà vers cette œuvre ? Renvoie sa clé, sinon null. */
+export async function findOtherImportLink(
+  db: D1Database,
+  source: ImportSource,
+  mediaId: number,
+  exceptKey: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT external_key FROM import_links WHERE source = ? AND media_id = ? AND external_key <> ? LIMIT 1")
+    .bind(source, mediaId, exceptKey)
+    .first<{ external_key: string }>();
+  return row?.external_key ?? null;
+}
+
+export async function saveImportLink(db: D1Database, source: ImportSource, key: string, mediaId: number): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO import_links (source, external_key, media_id) VALUES (?, ?, ?)
+       ON CONFLICT (source, external_key) DO UPDATE SET media_id = excluded.media_id`,
+    )
+    .bind(source, key, mediaId)
+    .run();
+}
+
+/** Enregistre un lien vers un site officiel, sauf si l'œuvre en a déjà un pour ce site. */
+export async function setExternalLinkIfAbsent(
   db: D1Database,
   mediaId: number,
   site: "letterboxd" | "serializd" | "backloggd" | "myanimelist",
   url: string,
 ): Promise<void> {
+  const path = `$.${site}`;
   await db
-    .prepare("UPDATE media SET external_links_json = json_set(COALESCE(external_links_json, '{}'), ?, ?) WHERE id = ?")
-    .bind(`$.${site}`, url, mediaId)
+    .prepare(
+      `UPDATE media SET external_links_json = json_set(COALESCE(external_links_json, '{}'), ?, ?)
+       WHERE id = ? AND json_extract(COALESCE(external_links_json, '{}'), ?) IS NULL`,
+    )
+    .bind(path, url, mediaId, path)
     .run();
+}
+
+/**
+ * Annule une correspondance d'import :
+ *  - si aucune autre entrée d'export ne pointe vers cette œuvre, l'entrée de bibliothèque
+ *    est supprimée (visionnages et rappels partent avec, en cascade) ;
+ *  - sinon (plusieurs épisodes rattachés à la même série), seuls les visionnages de
+ *    cette entrée sont retirés.
+ */
+export async function undoImportLink(
+  db: D1Database,
+  source: ImportSource,
+  key: string,
+  refs: string[],
+): Promise<boolean> {
+  const link = await db
+    .prepare("SELECT media_id FROM import_links WHERE source = ? AND external_key = ?")
+    .bind(source, key)
+    .first<{ media_id: number }>();
+  if (!link) return false;
+
+  await db.prepare("DELETE FROM import_links WHERE source = ? AND external_key = ?").bind(source, key).run();
+  const others = await findOtherImportLink(db, source, link.media_id, key);
+
+  if (others === null) {
+    await db.batch([
+      db.prepare("DELETE FROM library_entries WHERE user_id = ? AND media_id = ?").bind(CURRENT_USER_ID, link.media_id),
+      db
+        .prepare(
+          "UPDATE media SET external_links_json = json_remove(external_links_json, ?) WHERE id = ? AND external_links_json IS NOT NULL",
+        )
+        .bind(`$.${source}`, link.media_id),
+    ]);
+  } else {
+    for (const part of chunks(refs)) {
+      await db
+        .prepare(
+          `DELETE FROM progress_log
+           WHERE external_ref IN (${part.map(() => "?").join(", ")})
+             AND entry_id IN (SELECT id FROM library_entries WHERE user_id = ? AND media_id = ?)`,
+        )
+        .bind(...part, CURRENT_USER_ID, link.media_id)
+        .run();
+    }
+  }
+  return true;
 }
 
 export interface ImportedEntry {
@@ -186,8 +269,9 @@ export async function upsertImportedEntry(
                                     current_episode, current_chapter, started_at, completed_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
        ON CONFLICT (user_id, media_id) DO UPDATE SET
-         status = excluded.status,
-         is_focus = CASE WHEN excluded.status = 'in_progress' THEN is_focus ELSE 0 END,
+         -- Jamais de retour en arrière : une œuvre terminée ne redevient pas « à voir ».
+         status = CASE WHEN status = 'completed' AND excluded.status = 'planned' THEN status ELSE excluded.status END,
+         is_focus = CASE WHEN excluded.status = 'in_progress' AND status = 'in_progress' THEN is_focus ELSE 0 END,
          rating = COALESCE(excluded.rating, rating),
          review = COALESCE(excluded.review, review),
          is_favorite = MAX(is_favorite, excluded.is_favorite),

@@ -1,8 +1,10 @@
 // Logique d'import côté serveur : une œuvre à la fois, appelée par /api/import.
 import {
-  findMediaIdsByLetterboxdUri,
+  findImportLinks,
+  findOtherImportLink,
   insertImportedLogs,
-  setExternalLink,
+  saveImportLink,
+  setExternalLinkIfAbsent,
   upsertImportedEntry,
   upsertMedia,
   type ImportedLog,
@@ -12,7 +14,7 @@ import { getMalDetails } from "../sources/mal";
 import { getTmdbDetails, searchTmdbMovieHits, tmdbPosterUrl, type TmdbMovieHit } from "../sources/tmdb";
 import { yearOf, type LibraryStatus } from "../types";
 import { pickMatch } from "./match";
-import type { ImportItemResult, LetterboxdFilm, LetterboxdWatch, MalImportItem, MatchCandidate } from "./types";
+import { letterboxdLinkKey, type ImportItemResult, type LetterboxdFilm, type LetterboxdWatch, type MalImportItem, type MatchCandidate } from "./types";
 
 /** Exécute `run` sur chaque élément, avec au plus `limit` appels simultanés, dans l'ordre d'origine. */
 export async function mapLimit<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
@@ -53,6 +55,7 @@ export async function importMalItem(env: CloudflareEnv, item: MalImportItem): Pr
   try {
     const details = await getMalDetails(env.MAL_CLIENT_ID, item.kind, item.malId);
     const mediaId = await upsertMedia(env.DB, details);
+    await saveImportLink(env.DB, "mal", item.key, mediaId);
     const total = (item.kind === "anime" ? details.totalEpisodes : details.totalChapters) ?? item.total;
     const position = nextPosition(item.status, item.progress, total);
     await upsertImportedEntry(env.DB, mediaId, item.kind, {
@@ -77,6 +80,7 @@ export async function importMalItem(env: CloudflareEnv, item: MalImportItem): Pr
 
 const toCandidate = (hit: TmdbMovieHit): MatchCandidate => ({
   tmdbId: String(hit.id),
+  mediaType: "movie",
   title: hit.title,
   originalTitle: hit.original_title !== hit.title ? hit.original_title : null,
   year: yearOf(hit.release_date),
@@ -92,38 +96,57 @@ export async function importLetterboxdFilm(
   knownMediaId: number | undefined,
 ): Promise<ImportItemResult> {
   const label = film.year ? `${film.name} (${film.year})` : film.name;
+  const linkKey = letterboxdLinkKey(film);
+  const type = film.forceType ?? "movie";
   try {
     let mediaId = film.forceTmdbId ? undefined : knownMediaId;
     let title = label;
+    let tmdbId: string | undefined = film.forceTmdbId;
+    let candidates: MatchCandidate[] = [];
 
     if (mediaId === undefined) {
-      let tmdbId = film.forceTmdbId;
       if (!tmdbId) {
         let hits = await searchTmdbMovieHits(env.TMDB_API_TOKEN, film.name, film.year);
         if (hits.length === 0 && film.year !== null) {
           hits = await searchTmdbMovieHits(env.TMDB_API_TOKEN, film.name, null);
         }
-        const { match, candidates } = pickMatch(film.name, film.year, hits);
-        if (!match) {
+        const outcome = pickMatch(film.name, film.year, hits);
+        candidates = outcome.candidates.map(toCandidate);
+        if (!outcome.match) {
+          return { key: film.key, label, status: hits.length > 0 ? "ambiguous" : "not_found", candidates };
+        }
+        tmdbId = String(outcome.match.id);
+      }
+      const details = await getTmdbDetails(env.TMDB_API_TOKEN, type, tmdbId);
+      mediaId = await upsertMedia(env.DB, details);
+      title = details.title;
+
+      // Deux films Letterboxd différents sur la même fiche TMDB : presque toujours une erreur
+      // de correspondance (remake, homonyme). On demande confirmation au lieu de fusionner.
+      // Pour une série, c'est normal (épisodes listés séparément sur Letterboxd).
+      if (type === "movie" && !film.allowMerge) {
+        const other = await findOtherImportLink(env.DB, "letterboxd", mediaId, linkKey);
+        if (other) {
           return {
             key: film.key,
             label,
-            status: hits.length > 0 ? "ambiguous" : "not_found",
-            candidates: candidates.map(toCandidate),
+            status: "conflict",
+            message: `TMDB associe ce film à « ${title} », déjà rattaché à une autre entrée Letterboxd.`,
+            candidates,
+            tmdbId,
+            tmdbType: type,
+            conflictWith: other,
           };
         }
-        tmdbId = String(match.id);
       }
-      const details = await getTmdbDetails(env.TMDB_API_TOKEN, "movie", tmdbId);
-      mediaId = await upsertMedia(env.DB, details);
-      title = details.title;
     }
 
-    if (film.uri) await setExternalLink(env.DB, mediaId, "letterboxd", film.uri);
+    await saveImportLink(env.DB, "letterboxd", linkKey, mediaId);
+    if (film.uri) await setExternalLinkIfAbsent(env.DB, mediaId, "letterboxd", film.uri);
 
     const last = latest(film.watches);
     const lastReview = latest(film.watches.filter((w) => w.review));
-    const entryId = await upsertImportedEntry(env.DB, mediaId, "movie", {
+    const entryId = await upsertImportedEntry(env.DB, mediaId, type, {
       status: film.status,
       rating: starsToTen(film.rating),
       review: lastReview?.review ?? null,
@@ -135,7 +158,7 @@ export async function importLetterboxdFilm(
     });
 
     const logs: ImportedLog[] = film.watches.map((watch) => ({
-      kind: "movie",
+      kind: type === "tv" ? "episode" : "movie",
       rating: starsToTen(watch.rating),
       review: watch.review,
       tags: watch.tags,
@@ -144,18 +167,16 @@ export async function importLetterboxdFilm(
     }));
     await insertImportedLogs(env.DB, entryId, logs);
 
-    return { key: film.key, label: title, status: knownMediaId !== undefined && !film.forceTmdbId ? "updated" : "imported" };
+    const reused = knownMediaId !== undefined && !film.forceTmdbId;
+    return { key: film.key, label: title, status: reused ? "updated" : "imported", tmdbId, tmdbType: type };
   } catch (error) {
     return { key: film.key, label, status: "error", message: errorMessage(error) };
   }
 }
 
 export async function importLetterboxdBatch(env: CloudflareEnv, films: LetterboxdFilm[]): Promise<ImportItemResult[]> {
-  const known = await findMediaIdsByLetterboxdUri(
-    env.DB,
-    films.flatMap((f) => (f.uri ? [f.uri] : [])),
-  );
-  return mapLimit(films, 3, (film) => importLetterboxdFilm(env, film, film.uri ? known.get(film.uri) : undefined));
+  const known = await findImportLinks(env.DB, "letterboxd", films.map(letterboxdLinkKey));
+  return mapLimit(films, 3, (film) => importLetterboxdFilm(env, film, known.get(letterboxdLinkKey(film))));
 }
 
 export function importMalBatch(env: CloudflareEnv, items: MalImportItem[]): Promise<ImportItemResult[]> {
