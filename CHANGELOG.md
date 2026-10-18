@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/K3nt1/omnilog/compare/v0.2.0...v0.3.0) (2026-10-18)
+
+
+### ✨ Nouveautés
+
+* **import:** importer les listes Letterboxd et MyAnimeList ([#22](https://github.com/K3nt1/omnilog/issues/22)) ([d8ca87c](https://github.com/K3nt1/omnilog/commit/d8ca87c175fd8a9b8593f085195b03f9d9631b7a))
+
 ## [0.2.0](https://github.com/K3nt1/omnilog/compare/v0.1.0...v0.2.0) (2026-10-18)
 
 
