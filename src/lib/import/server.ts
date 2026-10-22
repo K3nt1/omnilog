@@ -8,6 +8,7 @@ import {
   upsertImportedEntry,
   upsertMedia,
   type ImportedLog,
+  type ImportLink,
 } from "../library";
 import { SourceError } from "../sources/http";
 import { getMalDetails } from "../sources/mal";
@@ -93,13 +94,17 @@ const latest = (watches: LetterboxdWatch[]) =>
 export async function importLetterboxdFilm(
   env: CloudflareEnv,
   film: LetterboxdFilm,
-  knownMediaId: number | undefined,
+  known: ImportLink | undefined,
 ): Promise<ImportItemResult> {
   const label = film.year ? `${film.name} (${film.year})` : film.name;
   const linkKey = letterboxdLinkKey(film);
-  const type = film.forceType ?? "movie";
+  // Déjà relié (relance) : on garde l'œuvre et son type. Une série validée à la main
+  // n'a plus de forceType à la relance, il ne faut pas la retraiter comme un film.
+  const reuse = film.forceTmdbId ? undefined : known;
+  // (L'import Letterboxd ne crée que des fiches TMDB : film ou série.)
+  const type = (reuse?.type ?? film.forceType ?? "movie") as "movie" | "tv";
   try {
-    let mediaId = film.forceTmdbId ? undefined : knownMediaId;
+    let mediaId = reuse?.mediaId;
     let title = label;
     let tmdbId: string | undefined = film.forceTmdbId;
     let candidates: MatchCandidate[] = [];
@@ -167,7 +172,7 @@ export async function importLetterboxdFilm(
     }));
     await insertImportedLogs(env.DB, entryId, logs);
 
-    const reused = knownMediaId !== undefined && !film.forceTmdbId;
+    const reused = reuse !== undefined;
     return { key: film.key, label: title, status: reused ? "updated" : "imported", tmdbId, tmdbType: type };
   } catch (error) {
     return { key: film.key, label, status: "error", message: errorMessage(error) };
