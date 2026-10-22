@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/K3nt1/omnilog/compare/v0.3.0...v0.3.1) (2026-10-22)
+
+
+### 🐛 Corrections
+
+* **import:** garder le type série à la relance d'un import Letterboxd ([#28](https://github.com/K3nt1/omnilog/issues/28)) ([0863869](https://github.com/K3nt1/omnilog/commit/0863869080dc9101b2733d188dd84ec11ed1a2ce))
+
 ## [0.3.0](https://github.com/K3nt1/omnilog/compare/v0.2.0...v0.3.0) (2026-10-18)
 
 
