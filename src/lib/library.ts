@@ -135,22 +135,26 @@ const PARAM_CHUNK = 90;
 const chunks = <T,>(items: T[], size = PARAM_CHUNK) =>
   Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 
+/** Œuvre déjà reliée à une entrée d'export, avec son type (film, série…). */
+export type ImportLink = { mediaId: number; type: MediaType };
+
 /** Entrées d'export déjà reconnues : clé externe -> identifiant de l'œuvre. */
 export async function findImportLinks(
   db: D1Database,
   source: ImportSource,
   keys: string[],
-): Promise<Map<string, number>> {
-  const found = new Map<string, number>();
+): Promise<Map<string, ImportLink>> {
+  const found = new Map<string, ImportLink>();
   for (const part of chunks([...new Set(keys)])) {
     const { results } = await db
       .prepare(
-        `SELECT external_key, media_id FROM import_links
-         WHERE source = ? AND external_key IN (${part.map(() => "?").join(", ")})`,
+        `SELECT l.external_key, l.media_id, m.type FROM import_links l
+         JOIN media m ON m.id = l.media_id
+         WHERE l.source = ? AND l.external_key IN (${part.map(() => "?").join(", ")})`,
       )
       .bind(source, ...part)
-      .all<{ external_key: string; media_id: number }>();
-    for (const row of results) found.set(row.external_key, row.media_id);
+      .all<{ external_key: string; media_id: number; type: MediaType }>();
+    for (const row of results) found.set(row.external_key, { mediaId: row.media_id, type: row.type });
   }
   return found;
 }
