@@ -49,6 +49,7 @@ export async function searchMal(clientId: string, kind: "anime" | "manga", query
       year: yearOf(node.start_date),
       posterUrl: node.main_picture?.large ?? node.main_picture?.medium ?? null,
       libraryStatus: null,
+      matchTitles: [node.title, english, node.alternative_titles?.ja].filter((t): t is string => !!t),
     };
   });
 }

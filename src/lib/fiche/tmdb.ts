@@ -257,3 +257,49 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
     links: links(s.external_ids?.imdb_id, s.homepage),
   };
 }
+
+export interface SeasonEpisode {
+  number: number;
+  name: string;
+  /** Nom anglais (sert à reconnaître les épisodes importés de Letterboxd, dont les titres sont en anglais). */
+  englishName: string | null;
+  overview: string | null;
+  stillUrl: string | null;
+  airDate: string | null;
+  runtimeMinutes: number | null;
+}
+
+interface TmdbSeason {
+  episodes: {
+    episode_number: number;
+    name: string;
+    overview: string;
+    still_path: string | null;
+    air_date: string | null;
+    runtime: number | null;
+  }[];
+}
+
+/** Épisodes d'une saison (titres français, résumé anglais si pas de traduction). */
+export async function getTmdbSeason(token: string, id: string, season: number): Promise<SeasonEpisode[]> {
+  const path = `/tv/${Number(id)}/season/${season}`;
+  const [fr, en] = await Promise.all([
+    tmdbGet<TmdbSeason>(token, path),
+    tmdbGet<TmdbSeason>(token, path, { language: "en-US" }).catch(() => null),
+  ]);
+  const english = new Map((en?.episodes ?? []).map((e) => [e.episode_number, e]));
+  return fr.episodes.map((e) => {
+    const eng = english.get(e.episode_number);
+    // TMDB renvoie « Épisode 3 » quand le titre n'est pas traduit : on garde alors le titre anglais.
+    const untranslated = /^(Épisode|Episode) \d+$/i.test(e.name) && eng?.name && !/^Episode \d+$/i.test(eng.name);
+    return {
+      number: e.episode_number,
+      name: untranslated ? eng!.name : e.name,
+      englishName: eng?.name ?? null,
+      overview: e.overview || eng?.overview || null,
+      stillUrl: tmdbImage(e.still_path, "w300"),
+      airDate: e.air_date || null,
+      runtimeMinutes: e.runtime || null,
+    };
+  });
+}

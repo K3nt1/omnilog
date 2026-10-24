@@ -28,7 +28,12 @@ interface TmdbMultiItem {
   release_date?: string;
   first_air_date?: string;
   poster_path?: string | null;
+  genre_ids?: number[];
+  original_language?: string;
 }
+
+/** Genre « Animation » chez TMDB. */
+const TMDB_ANIMATION = 16;
 
 export async function searchTmdb(token: string, query: string, types: Set<MediaType>): Promise<SearchResult[]> {
   const data = await tmdb<{ results: TmdbMultiItem[] }>(token, "/search/multi", {
@@ -53,6 +58,8 @@ export async function searchTmdb(token: string, query: string, types: Set<MediaT
         year: yearOf(type === "movie" ? item.release_date : item.first_air_date),
         posterUrl: poster(item.poster_path),
         libraryStatus: null,
+        matchTitles: [title, original].filter((t): t is string => !!t),
+        animeLike: item.original_language === "ja" && (item.genre_ids ?? []).includes(TMDB_ANIMATION),
       },
     ];
   });

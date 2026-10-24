@@ -48,7 +48,7 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
   const href = (change: Partial<LibraryQuery>) => libraryHref(basePath, query, change, fixedType);
   const statusTotal = Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
   const typeTotal = Object.values(data.typeCounts).reduce((a, b) => a + b, 0);
-  const filtered = query.status || query.favorite || query.rating || query.search.trim() || (!fixedType && query.type);
+  const filtered = query.status || query.favorite || query.rating || query.genre || query.search.trim() || (!fixedType && query.type);
 
   return (
     <div className="space-y-4">
@@ -85,6 +85,7 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
         fixedType={fixedType}
         sorts={sortsFor(query.type)}
         durationLabel={query.type ? DURATION_LABELS[query.type] : "Durée"}
+        genres={data.genres}
       />
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-white/60">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToLibrary } from "@/components/fiche/AddToLibrary";
 import { PublisherField } from "@/components/fiche/PublisherField";
+import { SeasonList } from "@/components/fiche/SeasonList";
 import { RichText } from "@/components/RichText";
 import { TrackingPanel } from "@/components/fiche/TrackingPanel";
 import { getLibraryStatuses, getStoredFiche, type JournalLine, type StoredMedia } from "@/lib/entry";
@@ -401,17 +402,8 @@ export default async function FichePage({ params }: Props) {
         )}
 
         {f.seasons.length > 0 && (
-          <Section title="Saisons">
-            <ul className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              {f.seasons.map((s) => (
-                <li key={s.seasonNumber} className="flex justify-between gap-3 rounded-lg bg-white/5 px-3 py-2 ring-1 ring-white/10">
-                  <span>{s.name ?? (s.seasonNumber === 0 ? "Épisodes spéciaux" : `Saison ${s.seasonNumber}`)}</span>
-                  <span className="text-white/60">
-                    {[plural(s.episodeCount, "épisode"), yearOf(s.airDate)].filter(Boolean).join(" · ")}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          <Section title="Saisons et épisodes">
+            <SeasonList tmdbId={id} seasons={f.seasons} />
           </Section>
         )}
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ficheHref, plannedLabel, statusLabel, TYPE_LABELS } from "@/lib/labels";
 import {
   MEDIA_TYPES,
@@ -13,10 +14,48 @@ import {
 
 type AddState = "adding" | "error";
 
-export default function SearchPage() {
-  const [query, setQuery] = useState("");
-  const [types, setTypes] = useState<Set<MediaType>>(new Set(MEDIA_TYPES));
-  const [data, setData] = useState<SearchResponse | null>(null);
+const CACHE_KEY = "omnilog:recherche";
+
+/** Derniers résultats gardés dans l'onglet : au retour sur la page, ils réapparaissent sans nouvelle recherche. */
+function readCache(key: string): SearchResponse | null {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) ?? "null") as { key: string; data: SearchResponse } | null;
+    return cached?.key === key ? cached.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key: string, data: SearchResponse) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ key, data }));
+  } catch {
+    // Stockage indisponible (navigation privée…) : la recherche sera simplement relancée.
+  }
+}
+
+function parseTypes(value: string | null): Set<MediaType> {
+  const types = (value ?? "").split(",").filter((t): t is MediaType => (MEDIA_TYPES as readonly string[]).includes(t));
+  return new Set(types.length > 0 ? types : MEDIA_TYPES);
+}
+
+export default function Page() {
+  // useSearchParams demande une frontière Suspense (la page est rendue côté navigateur).
+  return (
+    <Suspense fallback={null}>
+      <SearchPage />
+    </Suspense>
+  );
+}
+
+function SearchPage() {
+  // La recherche vit dans l'adresse (?q=…&types=…) : le bouton retour la retrouve.
+  const params = useSearchParams();
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const [types, setTypes] = useState<Set<MediaType>>(() => parseTypes(params.get("types")));
+  const initialKey = `${(params.get("q") ?? "").trim()}|${[...parseTypes(params.get("types"))].join(",")}`;
+  const [data, setData] = useState<SearchResponse | null>(() => (typeof window === "undefined" ? null : readCache(initialKey)));
+  const restoredKey = useRef(data ? initialKey : null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addStates, setAddStates] = useState<Record<string, AddState>>({});
@@ -27,10 +66,20 @@ export default function SearchPage() {
 
   // Recherche automatique 400 ms après la dernière frappe.
   useEffect(() => {
-    if (trimmed.length < 2) return;
+    const key = `${trimmed}|${typesParam}`;
+    const url = trimmed ? `/recherche?${new URLSearchParams({ q: trimmed, types: typesParam })}` : "/recherche";
+    if (trimmed.length < 2) {
+      window.history.replaceState(null, "", url);
+      return;
+    }
+    // Résultats restaurés au retour sur la page : affichés tout de suite, puis rafraîchis en silence
+    // (une œuvre a pu être ajoutée depuis sa fiche entre-temps).
+    const restored = restoredKey.current === key;
+    restoredKey.current = null;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
-      setLoading(true);
+      window.history.replaceState(null, "", url);
+      if (!restored) setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams({ q: trimmed, types: typesParam });
@@ -38,12 +87,13 @@ export default function SearchPage() {
         const json = (await res.json()) as SearchResponse & { error?: string };
         if (!res.ok) throw new Error(json.error ?? "Recherche impossible.");
         setData(json);
+        writeCache(key, json);
       } catch (e) {
         if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Recherche impossible.");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    }, 400);
+    }, restored ? 0 : 400);
     return () => {
       controller.abort();
       clearTimeout(timer);

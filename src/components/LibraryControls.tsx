@@ -32,10 +32,11 @@ interface Props {
   sorts: SortKey[];
   /** Libellé de « Durée » selon le type (minutes, épisodes, chapitres…). */
   durationLabel: string;
+  genres: { label: string; count: number }[];
 }
 
 /** Recherche, note, tri : met à jour l'adresse, la page se recharge côté serveur avec les nouveaux filtres. */
-export function LibraryControls({ basePath, query, fixedType, sorts, durationLabel }: Props) {
+export function LibraryControls({ basePath, query, fixedType, sorts, durationLabel, genres }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(query.search);
@@ -78,6 +79,20 @@ export function LibraryControls({ basePath, query, fixedType, sorts, durationLab
         aria-label="Chercher dans la bibliothèque"
         className={`${field} min-w-56 flex-1`}
       />
+      <select
+        value={query.genre ?? ""}
+        onChange={(e) => go({ genre: e.target.value || null })}
+        aria-label="Filtrer par genre"
+        className={field}
+      >
+        <option value="">Tous les genres</option>
+        {query.genre && !genres.some((g) => g.label === query.genre) && <option value={query.genre}>{query.genre}</option>}
+        {genres.map((g) => (
+          <option key={g.label} value={g.label}>
+            {g.label} ({g.count})
+          </option>
+        ))}
+      </select>
       <select
         value={query.rating ?? ""}
         onChange={(e) => go({ rating: (e.target.value || null) as RatingFilter | null })}

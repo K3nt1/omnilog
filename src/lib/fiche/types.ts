@@ -85,3 +85,15 @@ export interface MediaFiche {
   related: RelatedGroup[];
   links: FicheLink[];
 }
+
+/** Épisode d'une saison tel que renvoyé par /api/fiche/tv/:id/saison/:n. */
+export interface SeasonEpisodeResponse {
+  number: number;
+  name: string;
+  overview: string | null;
+  stillUrl: string | null;
+  airDate: string | null;
+  runtimeMinutes: number | null;
+  /** Ton visionnage le plus récent de cet épisode, sinon null. */
+  watched: { at: string; rating: number | null; review: string | null; count: number } | null;
+}

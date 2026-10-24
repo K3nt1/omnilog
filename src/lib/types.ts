@@ -30,6 +30,10 @@ export interface SearchResult {
   posterUrl: string | null;
   /** Statut dans ta bibliothèque si l'œuvre y est déjà, sinon null. */
   libraryStatus: LibraryStatus | null;
+  /** Interne (retiré avant la réponse) : tous les titres connus, pour repérer les doublons entre sources. */
+  matchTitles?: string[];
+  /** Interne : film ou série TMDB d'animation japonaise (probablement aussi sur MyAnimeList). */
+  animeLike?: boolean;
 }
 
 export interface SearchResponse {
