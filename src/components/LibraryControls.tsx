@@ -13,7 +13,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   sortie: "Année de sortie",
   fin: "Date de fin",
   duree: "Durée",
-  visionnages: "Nombre de visionnages",
+  visionnages: "Nombre de visionnages (2 et +)",
 };
 
 const RATING_LABELS: Record<RatingFilter, string> = {

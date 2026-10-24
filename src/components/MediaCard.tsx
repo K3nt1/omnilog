@@ -47,7 +47,16 @@ const STATUS_STYLE: Record<LibraryCard["status"], string> = {
  * Vignette d'une œuvre : affiche (perso sinon officielle), badges, progression, pause.
  * `showType` affiche la pastille du type (utile quand la grille mélange films, séries…).
  */
-export function MediaCard({ card, showType = false }: { card: LibraryCard; showType?: boolean }) {
+export function MediaCard({
+  card,
+  showType = false,
+  detail = null,
+}: {
+  card: LibraryCard;
+  showType?: boolean;
+  /** Ligne d'info sous le titre (date d'ajout, nombre de visionnages… selon le tri). */
+  detail?: string | null;
+}) {
   const year = yearOf(card.releaseDate);
   const stars = starsLabel(card.rating);
   const progress = progressOf(card);
@@ -98,6 +107,7 @@ export function MediaCard({ card, showType = false }: { card: LibraryCard; showT
       </div>
       <p className="mt-1.5 line-clamp-2 text-sm font-medium leading-tight">{card.title}</p>
       <p className="line-clamp-1 text-xs text-white/50">{[year, card.originalTitle].filter(Boolean).join(" · ")}</p>
+      {detail && <p className="mt-0.5 line-clamp-1 text-xs font-medium text-sky-300">{detail}</p>}
     </Link>
   );
 }

@@ -54,6 +54,8 @@ export interface LibraryCard {
   totalChapters: number | null;
   runtimeMinutes: number | null;
   isOngoing: boolean;
+  /** Valeur du tri en cours (date d'ajout, nombre de visionnages…), affichée sous l'affiche. */
+  sortValue?: string | number | null;
 }
 
 /** Tris proposés selon le type affiché (la durée n'a de sens qu'avec un seul type). */

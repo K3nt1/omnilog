@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { LibraryPage } from "@/lib/browse";
 import { sortsFor, type LibraryQuery } from "@/lib/browse-shared";
-import { STATUS_ORDER, statusLabel, TYPE_LABELS } from "@/lib/labels";
+import { sortDetail, STATUS_ORDER, statusLabel, TYPE_LABELS } from "@/lib/labels";
 import { libraryHref } from "@/lib/library-url";
 import { MEDIA_TYPES, type MediaType } from "@/lib/types";
 import { LibraryControls } from "./LibraryControls";
@@ -109,14 +109,20 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
               </Link>
             </>
           ) : (
-            "Aucune œuvre ne correspond à ces filtres."
+            query.sort === "visionnages"
+              ? "Aucune œuvre vue au moins deux fois avec ces filtres."
+              : "Aucune œuvre ne correspond à ces filtres."
           )}
         </p>
       ) : (
         <ul className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {data.cards.map((card) => (
             <li key={card.entryId}>
-              <MediaCard card={card} showType={!fixedType && query.type === null} />
+              <MediaCard
+                card={card}
+                showType={!fixedType && query.type === null}
+                detail={sortDetail(query.sort, card.type, card.sortValue)}
+              />
             </li>
           ))}
         </ul>

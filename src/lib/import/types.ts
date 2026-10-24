@@ -93,5 +93,8 @@ export interface ImportResponse {
   results: ImportItemResult[];
 }
 
-/** Dates d'ajout corrigées par appel : une requête D1 chacune, sous la limite de 50 par appel (plan gratuit). */
-export const IMPORT_DATES_CHUNK = 45;
+/**
+ * Entrées complétées par appel (dates d'ajout, épisodes) : jusqu'à 2 requêtes D1 chacune, plus une,
+ * sous la limite de 50 requêtes par appel du plan gratuit.
+ */
+export const IMPORT_BACKFILL_CHUNK = 24;

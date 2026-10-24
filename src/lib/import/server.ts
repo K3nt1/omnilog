@@ -172,7 +172,21 @@ export async function importLetterboxdFilm(
       tags: watch.tags,
       externalRef: watch.ref,
       loggedAt: watch.watchedDate ? `${watch.watchedDate}T00:00:00.000Z` : new Date().toISOString(),
+      note: type === "tv" ? film.name : null, // nom de l'épisode
     }));
+    // Épisode marqué vu sans date dans le journal : un visionnage quand même, pour savoir lequel a été vu.
+    if (type === "tv" && logs.length === 0 && film.status === "completed") {
+      const date = letterboxdAddedDate(film);
+      logs.push({
+        kind: "episode",
+        rating: starsToTen(film.rating),
+        review: null,
+        tags: [],
+        externalRef: `${linkKey}#vu`,
+        loggedAt: date ? `${date}T00:00:00.000Z` : new Date().toISOString(),
+        note: film.name,
+      });
+    }
     await insertImportedLogs(env.DB, entryId, logs);
 
     const reused = reuse !== undefined;

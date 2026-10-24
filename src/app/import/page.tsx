@@ -6,7 +6,7 @@ import { parseMalXml } from "@/lib/import/mal-parse";
 import {
   IMPORT_BATCH_SIZE,
   IMPORT_CHECK_CHUNK,
-  IMPORT_DATES_CHUNK,
+  IMPORT_BACKFILL_CHUNK,
   letterboxdLinkKey,
   type ImportCheckResponse,
   type ImportItemResult,
@@ -189,7 +189,7 @@ export default function ImportPage() {
       await postJson("/api/import/undo", {
         source: "letterboxd",
         key: letterboxdLinkKey(item.film),
-        refs: item.film.watches.map((w) => w.ref),
+        refs: [...item.film.watches.map((w) => w.ref), `${letterboxdLinkKey(item.film)}#vu`],
       });
       record([
         item.previous && PENDING.includes(item.previous.status)
@@ -238,29 +238,38 @@ export default function ImportPage() {
     }
   }
 
-  /** Remet la vraie date d'ajout Letterboxd sur les films déjà importés (avant, c'était la date de l'import). */
-  async function fixAddedDates() {
+  /**
+   * Complète un import fait avant la v0.4.0, sans tout réimporter : vraie date d'ajout Letterboxd
+   * (avant, c'était la date de l'import) et nom de chaque épisode vu pour les séries.
+   */
+  async function completeImport() {
     if (!lb) return;
     setDates({ running: true, message: null });
-    const items = lb.films.flatMap((f) => {
-      const date = letterboxdAddedDate(f);
-      return date ? [{ key: letterboxdLinkKey(f), date }] : [];
-    });
-    let updated = 0;
+    const items = lb.films.map((f) => ({
+      key: letterboxdLinkKey(f),
+      addedDate: letterboxdAddedDate(f),
+      name: f.name,
+      refs: f.watches.map((w) => w.ref).slice(0, 50),
+    }));
+    const done = { dates: 0, episodes: 0 };
     try {
-      for (let i = 0; i < items.length; i += IMPORT_DATES_CHUNK) {
-        const res = await postJson<{ updated: number }>("/api/import/dates", {
+      for (let i = 0; i < items.length; i += IMPORT_BACKFILL_CHUNK) {
+        const res = await postJson<{ dates: number; episodes: number }>("/api/import/backfill", {
           source: "letterboxd",
-          items: items.slice(i, i + IMPORT_DATES_CHUNK),
+          items: items.slice(i, i + IMPORT_BACKFILL_CHUNK),
         });
-        updated += res.updated;
-        setDates({ running: true, message: `${Math.min(i + IMPORT_DATES_CHUNK, items.length)} / ${items.length}…` });
+        done.dates += res.dates;
+        done.episodes += res.episodes;
+        setDates({ running: true, message: `${Math.min(i + IMPORT_BACKFILL_CHUNK, items.length)} / ${items.length}…` });
       }
-      setDates({ running: false, message: `${updated} dates d'ajout corrigées (les autres étaient déjà bonnes).` });
+      setDates({
+        running: false,
+        message: `Terminé : ${done.dates} dates d'ajout corrigées, ${done.episodes} épisodes complétés (le reste était déjà bon).`,
+      });
     } catch (e) {
       setDates({
         running: false,
-        message: `${updated} dates corrigées, puis erreur : ${e instanceof Error ? e.message : "inconnue"}. Tu peux relancer.`,
+        message: `Arrêté après ${done.dates} dates et ${done.episodes} épisodes : ${e instanceof Error ? e.message : "erreur"}. Tu peux relancer, rien ne sera compté deux fois.`,
       });
     }
   }
@@ -408,11 +417,11 @@ export default function ImportPage() {
               <button
                 type="button"
                 disabled={running}
-                onClick={fixAddedDates}
-                title="Pour les films importés avant la v0.4.0 : remet la date d'ajout Letterboxd au lieu de la date de l'import."
+                onClick={completeImport}
+                title="Pour un import fait avant la v0.4.0 : remet la date d'ajout Letterboxd et le nom des épisodes de séries, sans tout réimporter."
                 className="rounded-lg bg-white/10 px-4 py-2 hover:bg-white/20 disabled:opacity-40"
               >
-                {dates.running ? "Correction des dates…" : "Corriger les dates d'ajout"}
+                {dates.running ? "Complétion…" : "Compléter l'import existant"}
               </button>
             </div>
             {check.message && <p className="rounded-lg bg-white/5 px-3 py-2 text-white/80">{check.message}</p>}

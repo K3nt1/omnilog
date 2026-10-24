@@ -105,3 +105,56 @@ export function durationLabel(minutes: number): string {
   if (h === 0) return `${m} min`;
   return m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, "0")}`;
 }
+
+/** « 2025-10-12 » ou « 2025-10-12T20:00:00Z » → « 12 oct. 2025 ». */
+export function dateLabel(value: string): string {
+  const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+const COMPLETED_VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vue", anime: "Vu", manga: "Lu", game: "Joué" };
+
+/**
+ * Ligne affichée sous une affiche selon le tri choisi (« Ajouté le 12 oct. 2025 », « Vu 3 fois »…).
+ * null quand l'information est déjà visible (titre, année, note).
+ */
+export function sortDetail(sort: string, type: MediaType, value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  switch (sort) {
+    case "ajout":
+      return `Ajouté le ${dateLabel(String(value))}`;
+    case "activite":
+      return `Activité : ${dateLabel(String(value))}`;
+    case "fin":
+      return `${COMPLETED_VERB[type]} le ${dateLabel(String(value))}`;
+    case "visionnages":
+      return `${COMPLETED_VERB[type]} ${value} fois`;
+    case "duree": {
+      const n = Number(value);
+      if (type === "movie") return durationLabel(n);
+      if (type === "game") return `≈ ${durationLabel(n)}`;
+      if (type === "manga") return `${n} chapitre${n > 1 ? "s" : ""}`;
+      return `${n} épisode${n > 1 ? "s" : ""}`;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Nom d'épisode à partir du titre Letterboxd (« Sherlock: The Great Game »),
+ * sans le nom de la série quand il est en tête (« The Great Game »).
+ */
+export function episodeName(note: string, seriesTitles: (string | null)[]): string {
+  const lower = note.toLowerCase();
+  for (const title of seriesTitles) {
+    if (!title) continue;
+    const t = title.toLowerCase();
+    if (lower.startsWith(t)) {
+      const rest = note.slice(title.length).replace(/^\s*[:\-–—]\s*/, "").trim();
+      if (rest) return rest;
+    }
+  }
+  return note;
+}

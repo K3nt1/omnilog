@@ -5,7 +5,17 @@ import { notFound } from "next/navigation";
 import { MediaCard } from "@/components/MediaCard";
 import { getTypeOverview, type ActivityItem } from "@/lib/browse";
 import type { LibraryCard } from "@/lib/browse-shared";
-import { starsLabel, STATUS_SLUGS, statusLabel, TYPE_LABELS, TYPE_SLUGS, typeFromSlug } from "@/lib/labels";
+import {
+  dateLabel,
+  durationLabel,
+  episodeName,
+  starsLabel,
+  STATUS_SLUGS,
+  statusLabel,
+  TYPE_LABELS,
+  TYPE_SLUGS,
+  typeFromSlug,
+} from "@/lib/labels";
 import type { LibraryStatus, MediaType } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,22 +31,27 @@ const nf = new Intl.NumberFormat("fr-FR");
 
 const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué" };
 
-/** « 2025-10-12 » ou « 2025-10-12T20:00:00Z » → « 12 oct. 2025 ». */
-function dateLabel(value: string): string {
-  const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** Ce qui a été vu / lu / joué : « S02E02 · The Hounds of Baskerville », « Ch. 1110 », « Session de 1 h 30 ». */
+function activityWhat(item: ActivityItem): string | null {
+  const name = item.note ? episodeName(item.note, [item.card.title, item.card.originalTitle]) : null;
+  if (item.logKind === "episode") {
+    const number =
+      item.episode !== null ? (item.season !== null ? `S${pad(item.season)}E${pad(item.episode)}` : `Ép. ${item.episode}`) : null;
+    const parts = [number, name].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }
+  if (item.logKind === "chapter" && item.chapter !== null) return `Ch. ${item.chapter.toLocaleString("fr-FR")}`;
+  if (item.logKind === "session") return item.minutes ? `Session de ${durationLabel(item.minutes)}` : "Session";
+  return null;
 }
 
-function activityText(item: ActivityItem, type: MediaType): string {
+/** Quand : « Vu le 11 janv. 2026 ». Pour une session de jeu, la note est l'endroit où l'on en est. */
+function activityWhen(item: ActivityItem, type: MediaType): string {
   const when = dateLabel(item.at);
   if (item.kind === "done") return `${statusLabel("completed", type)} le ${when}`;
-  if (item.logKind === "chapter" && item.chapter !== null) return `Ch. ${item.chapter.toLocaleString("fr-FR")} lu le ${when}`;
-  if (item.logKind === "episode" && item.episode !== null) {
-    const se = item.season !== null ? `S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : `Ép. ${item.episode}`;
-    return `${se} vu le ${when}`;
-  }
-  if (item.logKind === "session") return `Session le ${when}`;
+  if (item.logKind === "session") return `Le ${when}`;
   return `${VERB[type]} le ${when}`;
 }
 
@@ -52,7 +67,7 @@ function Row({ title, count, cards, href }: { title: string; count: number; card
           {count > cards.length ? `Tout voir (${nf.format(count)}) →` : "Ouvrir en grille →"}
         </Link>
       </div>
-      <ul className="-mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-2">
+      <ul className="scroll-row -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-3">
         {cards.map((card) => (
           <li key={card.entryId} className="w-28 shrink-0 snap-start sm:w-32 lg:w-36">
             <MediaCard card={card} />
@@ -129,29 +144,36 @@ export default async function TypePage({ params }: Props) {
           {overview.activity.length > 0 && (
             <section>
               <h2 className="mb-3 text-xl font-semibold">Activité récente</h2>
-              <ul className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
-                {overview.activity.map((item, i) => (
-                  <li key={`${item.card.entryId}-${i}`} className="w-56 shrink-0">
-                    <Link
-                      href={`/oeuvre/${item.card.mediaId}`}
-                      className="flex gap-3 rounded-lg bg-white/5 p-2 ring-1 ring-white/10 hover:ring-white/30"
-                    >
-                      <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-white/5">
-                        {item.card.posterUrl && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.card.posterUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                      <div className="min-w-0 text-sm">
-                        <p className="line-clamp-2 font-medium leading-tight">{item.card.title}</p>
-                        <p className="mt-1 text-xs text-white/60">{activityText(item, type)}</p>
-                        {item.logRating !== null && (
-                          <p className="text-xs text-amber-300">★ {starsLabel(item.logRating)}</p>
-                        )}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
+              <ul className="scroll-row -mx-4 flex gap-3 overflow-x-auto px-4 pb-3">
+                {overview.activity.map((item, i) => {
+                  const what = activityWhat(item);
+                  return (
+                    <li key={`${item.card.entryId}-${i}`} className="w-72 shrink-0">
+                      <Link
+                        href={`/oeuvre/${item.card.mediaId}`}
+                        className="flex h-full gap-3 rounded-lg bg-white/5 p-2 ring-1 ring-white/10 hover:ring-white/30"
+                      >
+                        <div className="h-28 w-[4.75rem] shrink-0 overflow-hidden rounded bg-white/5">
+                          {item.card.posterUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={item.card.posterUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                        <div className="min-w-0 py-0.5 text-sm">
+                          <p className="line-clamp-2 font-medium leading-tight">{item.card.title}</p>
+                          {what && <p className="mt-1 line-clamp-2 text-xs text-sky-300">{what}</p>}
+                          <p className="mt-1 text-xs text-white/60">{activityWhen(item, type)}</p>
+                          {item.logKind === "session" && item.note && (
+                            <p className="line-clamp-2 text-xs text-white/60">Où j&apos;en suis : {item.note}</p>
+                          )}
+                          {item.logRating !== null && (
+                            <p className="mt-0.5 text-xs text-amber-300">★ {starsLabel(item.logRating)}</p>
+                          )}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}

@@ -319,14 +319,16 @@ export interface ImportedLog {
   tags: string[];
   externalRef: string;
   loggedAt: string; // ISO 8601
+  /** Épisode de série (titre Letterboxd « Sherlock: The Great Game »), ou point d'avancée d'un jeu. */
+  note: string | null;
 }
 
 /** Insère l'historique des visionnages ; les entrées déjà importées (même external_ref) sont ignorées. */
 export async function insertImportedLogs(db: D1Database, entryId: number, logs: ImportedLog[]): Promise<void> {
   if (logs.length === 0) return;
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   await db.batch(
     logs.map((log) =>
@@ -338,28 +340,81 @@ export async function insertImportedLogs(db: D1Database, entryId: number, logs: 
         log.tags.length > 0 ? JSON.stringify(log.tags) : null,
         log.externalRef,
         log.loggedAt,
+        log.note,
       ),
     ),
   );
 }
 
+export interface LetterboxdBackfillItem {
+  key: string; // clé de l'entrée Letterboxd (letterboxdLinkKey)
+  addedDate: string | null; // AAAA-MM-JJ
+  name: string; // titre Letterboxd (« Sherlock: The Great Game »)
+  refs: string[]; // visionnages du journal (external_ref)
+}
+
 /**
- * Corrige la date d'ajout des entrées déjà importées (avant la v0.4.0, c'était la date de l'import).
- * Ne fait que reculer une date : une entrée ajoutée plus tôt garde sa date. Renvoie le nombre de lignes corrigées.
+ * Complète un import Letterboxd fait avant la v0.4.0, sans tout réimporter :
+ * - date d'ajout : la date Letterboxd au lieu de la date de l'import (on ne fait que la reculer) ;
+ * - séries : le nom de l'épisode sur chaque visionnage, et un visionnage pour les épisodes marqués vus sans date.
+ * Renvoie le nombre de dates et d'épisodes complétés.
  */
-export async function backfillAddedDates(
+export async function backfillLetterboxd(
   db: D1Database,
-  source: ImportSource,
-  items: { key: string; date: string }[],
-): Promise<number> {
-  if (items.length === 0) return 0;
-  const update = db.prepare(
-    `UPDATE library_entries SET created_at = ?1
-     WHERE user_id = ?2 AND created_at > ?1
-       AND media_id = (SELECT media_id FROM import_links WHERE source = ?3 AND external_key = ?4)`,
+  items: LetterboxdBackfillItem[],
+): Promise<{ dates: number; episodes: number }> {
+  if (items.length === 0) return { dates: 0, episodes: 0 };
+  const links = await findImportLinks(db, "letterboxd", items.map((i) => i.key));
+
+  const statements: D1PreparedStatement[] = [];
+  const kinds: ("date" | "episode")[] = [];
+  const setDate = db.prepare(
+    `UPDATE library_entries SET created_at = ?1 WHERE user_id = ?2 AND media_id = ?3 AND created_at > ?1`,
   );
-  const results = await db.batch(
-    items.map((item) => update.bind(`${item.date}T00:00:00.000Z`, CURRENT_USER_ID, source, item.key)),
-  );
-  return results.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
+  for (const item of items) {
+    const link = links.get(item.key);
+    if (!link) continue;
+    if (item.addedDate) {
+      statements.push(setDate.bind(`${item.addedDate}T00:00:00.000Z`, CURRENT_USER_ID, link.mediaId));
+      kinds.push("date");
+    }
+    if (link.type !== "tv") continue;
+    if (item.refs.length > 0) {
+      statements.push(
+        db
+          .prepare(
+            `UPDATE progress_log SET note = ? WHERE note IS NULL AND kind = 'episode'
+             AND external_ref IN (${item.refs.map(() => "?").join(", ")})`,
+          )
+          .bind(item.name, ...item.refs),
+      );
+    } else {
+      // Épisode marqué vu sur Letterboxd sans date dans le journal : un visionnage à la date d'ajout.
+      statements.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO progress_log (entry_id, kind, external_ref, logged_at, note)
+             SELECT id, 'episode', ?, ?, ? FROM library_entries WHERE user_id = ? AND media_id = ?`,
+          )
+          .bind(
+            `${item.key}#vu`,
+            item.addedDate ? `${item.addedDate}T00:00:00.000Z` : new Date().toISOString(),
+            item.name,
+            CURRENT_USER_ID,
+            link.mediaId,
+          ),
+      );
+    }
+    kinds.push("episode");
+  }
+  if (statements.length === 0) return { dates: 0, episodes: 0 };
+
+  const results = await db.batch(statements);
+  const count = { dates: 0, episodes: 0 };
+  results.forEach((r, i) => {
+    const changes = r.meta.changes ?? 0;
+    if (kinds[i] === "date") count.dates += changes;
+    else count.episodes += changes;
+  });
+  return count;
 }
