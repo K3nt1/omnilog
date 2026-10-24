@@ -1,5 +1,6 @@
 // Accès à la base D1 pour la bibliothèque.
 import type { LibraryStatus, MediaDetails, SearchResult } from "./types";
+import { mediaSearchText } from "./search-text";
 import { resultKey, type MediaSource, type MediaType } from "./types";
 
 /** Utilisateur unique pour l'instant (créé par la migration 0002). */
@@ -47,15 +48,16 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
     .prepare(
       `INSERT INTO media (type, source, external_id, title, original_title, overview, poster_url, backdrop_url,
                           release_date, runtime_minutes, total_episodes, total_chapters, total_volumes,
-                          is_ongoing, extra_json, fetched_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                          is_ongoing, extra_json, fetched_at, search_text)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
        ON CONFLICT (type, source, external_id) DO UPDATE SET
          title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
          poster_url = excluded.poster_url, backdrop_url = excluded.backdrop_url,
          release_date = excluded.release_date, runtime_minutes = excluded.runtime_minutes,
          total_episodes = excluded.total_episodes, total_chapters = excluded.total_chapters,
          total_volumes = excluded.total_volumes, is_ongoing = excluded.is_ongoing,
-         extra_json = excluded.extra_json, fetched_at = excluded.fetched_at
+         extra_json = excluded.extra_json, fetched_at = excluded.fetched_at,
+         search_text = excluded.search_text
        RETURNING id`,
     )
     .bind(
@@ -75,6 +77,7 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
       details.isOngoing ? 1 : 0,
       JSON.stringify(details.extra),
       new Date().toISOString(),
+      mediaSearchText(details.title, details.originalTitle),
     )
     .first<{ id: number }>();
 
@@ -255,6 +258,8 @@ export interface ImportedEntry {
   currentChapter: number | null;
   startedAt: string | null;
   completedAt: string | null;
+  /** Date d'ajout sur le site d'origine (AAAA-MM-JJ) ; sinon la date de l'import. */
+  addedAt: string | null;
 }
 
 /**
@@ -270,9 +275,12 @@ export async function upsertImportedEntry(
   const row = await db
     .prepare(
       `INSERT INTO library_entries (user_id, media_id, media_type, status, rating, review, is_favorite,
-                                    current_episode, current_chapter, started_at, completed_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                                    current_episode, current_chapter, started_at, completed_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))
        ON CONFLICT (user_id, media_id) DO UPDATE SET
+         -- Date d'ajout : on garde la plus ancienne (plusieurs entrées Letterboxd peuvent viser la même série).
+         created_at = MIN(created_at, excluded.created_at),
          -- Jamais de retour en arrière : une œuvre terminée ne redevient pas « à voir ».
          status = CASE WHEN status = 'completed' AND excluded.status = 'planned' THEN status ELSE excluded.status END,
          is_focus = CASE WHEN excluded.status = 'in_progress' AND status = 'in_progress' THEN is_focus ELSE 0 END,
@@ -297,6 +305,7 @@ export async function upsertImportedEntry(
       entry.currentChapter,
       entry.startedAt,
       entry.completedAt,
+      entry.addedAt ? `${entry.addedAt}T00:00:00.000Z` : null,
     )
     .first<{ id: number }>();
   if (!row) throw new Error("Impossible d'enregistrer l'entrée de bibliothèque");
@@ -332,4 +341,25 @@ export async function insertImportedLogs(db: D1Database, entryId: number, logs: 
       ),
     ),
   );
+}
+
+/**
+ * Corrige la date d'ajout des entrées déjà importées (avant la v0.4.0, c'était la date de l'import).
+ * Ne fait que reculer une date : une entrée ajoutée plus tôt garde sa date. Renvoie le nombre de lignes corrigées.
+ */
+export async function backfillAddedDates(
+  db: D1Database,
+  source: ImportSource,
+  items: { key: string; date: string }[],
+): Promise<number> {
+  if (items.length === 0) return 0;
+  const update = db.prepare(
+    `UPDATE library_entries SET created_at = ?1
+     WHERE user_id = ?2 AND created_at > ?1
+       AND media_id = (SELECT media_id FROM import_links WHERE source = ?3 AND external_key = ?4)`,
+  );
+  const results = await db.batch(
+    items.map((item) => update.bind(`${item.date}T00:00:00.000Z`, CURRENT_USER_ID, source, item.key)),
+  );
+  return results.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
 }

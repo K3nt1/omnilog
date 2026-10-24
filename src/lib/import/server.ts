@@ -14,6 +14,7 @@ import { SourceError } from "../sources/http";
 import { getMalDetails } from "../sources/mal";
 import { getTmdbDetails, searchTmdbMovieHits, tmdbPosterUrl, type TmdbMovieHit } from "../sources/tmdb";
 import { yearOf, type LibraryStatus } from "../types";
+import { letterboxdAddedDate } from "./added-date";
 import { pickMatch } from "./match";
 import { letterboxdLinkKey, type ImportItemResult, type LetterboxdFilm, type LetterboxdWatch, type MalImportItem, type MatchCandidate } from "./types";
 
@@ -68,6 +69,7 @@ export async function importMalItem(env: CloudflareEnv, item: MalImportItem): Pr
       currentChapter: item.kind === "manga" ? position : null,
       startedAt: item.startDate,
       completedAt: item.status === "completed" ? item.finishDate : null,
+      addedAt: null, // l'export MAL ne donne pas de date d'ajout
     });
     return { key: item.key, label: details.title, status: "imported" };
   } catch (error) {
@@ -160,6 +162,7 @@ export async function importLetterboxdFilm(
       currentChapter: null,
       startedAt: null,
       completedAt: film.status === "completed" ? (last?.watchedDate ?? film.addedDate) : null,
+      addedAt: letterboxdAddedDate(film),
     });
 
     const logs: ImportedLog[] = film.watches.map((watch) => ({

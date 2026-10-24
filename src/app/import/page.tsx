@@ -6,6 +6,7 @@ import { parseMalXml } from "@/lib/import/mal-parse";
 import {
   IMPORT_BATCH_SIZE,
   IMPORT_CHECK_CHUNK,
+  IMPORT_DATES_CHUNK,
   letterboxdLinkKey,
   type ImportCheckResponse,
   type ImportItemResult,
@@ -14,6 +15,7 @@ import {
   type MalImportItem,
   type MatchCandidate,
 } from "@/lib/import/types";
+import { letterboxdAddedDate } from "@/lib/import/added-date";
 import { readZipTextFiles } from "@/lib/import/unzip";
 import type { SearchResponse } from "@/lib/types";
 
@@ -115,11 +117,12 @@ export default function ImportPage() {
   const [validated, setValidated] = useState<Validated[]>([]);
   const [progress, setProgress] = useState<{ source: Source; done: number; total: number } | null>(null);
   const [check, setCheck] = useState<{ running: boolean; message: string | null }>({ running: false, message: null });
+  const [dates, setDates] = useState<{ running: boolean; message: string | null }>({ running: false, message: null });
   const stopRef = useRef(false);
 
   const filmsByKey = useMemo(() => new Map((lb?.films ?? []).map((f) => [f.key, f])), [lb]);
   const filmsByLinkKey = useMemo(() => new Map((lb?.films ?? []).map((f) => [letterboxdLinkKey(f), f])), [lb]);
-  const running = progress !== null || check.running;
+  const running = progress !== null || check.running || dates.running;
 
   function record(batch: ImportItemResult[]) {
     setResults((current) => {
@@ -232,6 +235,33 @@ export default function ImportPage() {
       });
     } catch (e) {
       setCheck({ running: false, message: e instanceof Error ? e.message : "Vérification impossible." });
+    }
+  }
+
+  /** Remet la vraie date d'ajout Letterboxd sur les films déjà importés (avant, c'était la date de l'import). */
+  async function fixAddedDates() {
+    if (!lb) return;
+    setDates({ running: true, message: null });
+    const items = lb.films.flatMap((f) => {
+      const date = letterboxdAddedDate(f);
+      return date ? [{ key: letterboxdLinkKey(f), date }] : [];
+    });
+    let updated = 0;
+    try {
+      for (let i = 0; i < items.length; i += IMPORT_DATES_CHUNK) {
+        const res = await postJson<{ updated: number }>("/api/import/dates", {
+          source: "letterboxd",
+          items: items.slice(i, i + IMPORT_DATES_CHUNK),
+        });
+        updated += res.updated;
+        setDates({ running: true, message: `${Math.min(i + IMPORT_DATES_CHUNK, items.length)} / ${items.length}…` });
+      }
+      setDates({ running: false, message: `${updated} dates d'ajout corrigées (les autres étaient déjà bonnes).` });
+    } catch (e) {
+      setDates({
+        running: false,
+        message: `${updated} dates corrigées, puis erreur : ${e instanceof Error ? e.message : "inconnue"}. Tu peux relancer.`,
+      });
     }
   }
 
@@ -375,8 +405,18 @@ export default function ImportPage() {
               >
                 {check.running ? "Vérification…" : "Vérifier les films manquants"}
               </button>
+              <button
+                type="button"
+                disabled={running}
+                onClick={fixAddedDates}
+                title="Pour les films importés avant la v0.4.0 : remet la date d'ajout Letterboxd au lieu de la date de l'import."
+                className="rounded-lg bg-white/10 px-4 py-2 hover:bg-white/20 disabled:opacity-40"
+              >
+                {dates.running ? "Correction des dates…" : "Corriger les dates d'ajout"}
+              </button>
             </div>
             {check.message && <p className="rounded-lg bg-white/5 px-3 py-2 text-white/80">{check.message}</p>}
+            {dates.message && <p className="rounded-lg bg-white/5 px-3 py-2 text-white/80">{dates.message}</p>}
           </div>
         )}
       </section>

@@ -92,3 +92,6 @@ export const IMPORT_CHECK_CHUNK = 450;
 export interface ImportResponse {
   results: ImportItemResult[];
 }
+
+/** Dates d'ajout corrigées par appel : une requête D1 chacune, sous la limite de 50 par appel (plan gratuit). */
+export const IMPORT_DATES_CHUNK = 45;

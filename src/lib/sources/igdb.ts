@@ -95,13 +95,33 @@ interface IgdbGame extends IgdbSearchGame {
   platforms?: { name: string; abbreviation?: string }[];
 }
 
+/** Durées de jeu IGDB, en secondes (rapide, normal, 100 %). */
+interface IgdbTimeToBeat {
+  hastily?: number;
+  normally?: number;
+  completely?: number;
+}
+
+const toMinutes = (seconds: number | undefined) => (seconds && seconds > 0 ? Math.round(seconds / 60) : null);
+
 export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<MediaDetails> {
-  const [game] = await igdb<IgdbGame[]>(
-    env,
-    "games",
-    `fields name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, genres.name, platforms.name, platforms.abbreviation; where id = ${Number(id)};`,
-  );
+  const [[game], times] = await Promise.all([
+    igdb<IgdbGame[]>(
+      env,
+      "games",
+      `fields name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, genres.name, platforms.name, platforms.abbreviation; where id = ${Number(id)};`,
+    ),
+    // Facultatif : beaucoup de jeux n'ont pas encore de durée, et une erreur ici ne doit pas bloquer l'ajout.
+    igdb<IgdbTimeToBeat[]>(env, "game_time_to_beats", `fields hastily, normally, completely; where game_id = ${Number(id)};`)
+      .then((rows) => rows[0] ?? null)
+      .catch(() => null),
+  ]);
   if (!game) throw new SourceError("IGDB", "IGDB : jeu introuvable", 404);
+  const timeToBeat = {
+    hastily: toMinutes(times?.hastily),
+    normally: toMinutes(times?.normally),
+    completely: toMinutes(times?.completely),
+  };
 
   const background = game.artworks?.[0] ?? game.screenshots?.[0];
   return {
@@ -114,7 +134,8 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
     posterUrl: game.cover ? `${IMG}/t_cover_big/${game.cover.image_id}.jpg` : null,
     backdropUrl: background ? `${IMG}/t_1080p/${background.image_id}.jpg` : null,
     releaseDate: unixToDate(game.first_release_date),
-    runtimeMinutes: null,
+    // « Durée de vie » d'un jeu : temps normal pour le finir (sinon rapide, sinon 100 %).
+    runtimeMinutes: timeToBeat.normally ?? timeToBeat.hastily ?? timeToBeat.completely,
     totalEpisodes: null,
     totalChapters: null,
     totalVolumes: null,
@@ -124,6 +145,7 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
       slug: game.slug, // sert aussi à construire le lien Backloggd
       genres: game.genres?.map((g) => g.name) ?? [],
       platforms: game.platforms?.map((p) => p.abbreviation ?? p.name) ?? [],
+      timeToBeat, // minutes
     },
   };
 }
