@@ -158,3 +158,7 @@ export function episodeName(note: string, seriesTitles: (string | null)[]): stri
   }
   return note;
 }
+
+/** Adresse de la fiche d'une œuvre : /oeuvre/films/550 (le type dans l'adresse, l'identifiant de la source). */
+export const ficheHref = (type: MediaType, externalId: string | null) =>
+  externalId ? `/oeuvre/${TYPE_SLUGS[type]}/${externalId}` : `/${TYPE_SLUGS[type]}`;

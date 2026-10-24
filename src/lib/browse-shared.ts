@@ -37,6 +37,7 @@ export interface LibraryCard {
   entryId: number;
   mediaId: number;
   type: MediaType;
+  externalId: string | null;
   title: string;
   originalTitle: string | null;
   releaseDate: string | null;

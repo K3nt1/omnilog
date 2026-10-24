@@ -93,3 +93,6 @@ export async function getMalDetails(clientId: string, kind: "anime" | "manga", i
     extra: { genres: d.genres?.map((g) => g.name) ?? [], status: d.status ?? null },
   };
 }
+
+/** Appel brut à l'API MyAnimeList (fiche média). */
+export const malGet = mal;

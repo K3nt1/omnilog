@@ -149,3 +149,8 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
     },
   };
 }
+
+/** Appel brut à l'API IGDB (fiche média). */
+export const igdbQuery = igdb;
+export const igdbImage = (imageId: string | undefined, size: string) => (imageId ? `${IMG}/${size}/${imageId}.jpg` : null);
+export type { IgdbCredentials };

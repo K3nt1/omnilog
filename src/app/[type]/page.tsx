@@ -9,6 +9,7 @@ import {
   dateLabel,
   durationLabel,
   episodeName,
+  ficheHref,
   starsLabel,
   STATUS_SLUGS,
   statusLabel,
@@ -150,7 +151,7 @@ export default async function TypePage({ params }: Props) {
                   return (
                     <li key={`${item.card.entryId}-${i}`} className="w-72 shrink-0">
                       <Link
-                        href={`/oeuvre/${item.card.mediaId}`}
+                        href={ficheHref(item.card.type, item.card.externalId)}
                         className="flex h-full gap-3 rounded-lg bg-white/5 p-2 ring-1 ring-white/10 hover:ring-white/30"
                       >
                         <div className="h-28 w-[4.75rem] shrink-0 overflow-hidden rounded bg-white/5">

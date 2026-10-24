@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { plannedLabel, statusLabel, TYPE_LABELS } from "@/lib/labels";
+import Link from "next/link";
+import { ficheHref, plannedLabel, statusLabel, TYPE_LABELS } from "@/lib/labels";
 import {
   MEDIA_TYPES,
   type LibraryStatus,
@@ -141,7 +142,7 @@ export default function SearchPage() {
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {results.map((r) => (
               <li key={r.key} className="flex flex-col">
-                <div className="aspect-[2/3] overflow-hidden rounded-lg bg-white/5">
+                <Link href={ficheHref(r.type, r.externalId)} className="block aspect-[2/3] overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:ring-white/40">
                   {r.posterUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={r.posterUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
@@ -150,10 +151,10 @@ export default function SearchPage() {
                       Pas d&apos;affiche
                     </div>
                   )}
-                </div>
-                <p className="mt-2 line-clamp-2 text-sm font-medium" title={r.title}>
+                </Link>
+                <Link href={ficheHref(r.type, r.externalId)} className="mt-2 line-clamp-2 text-sm font-medium hover:underline" title={r.title}>
                   {r.title}
-                </p>
+                </Link>
                 <p className="line-clamp-1 text-xs text-white/50">
                   {[r.year, r.originalTitle].filter(Boolean).join(" · ")}
                 </p>

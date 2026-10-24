@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { LibraryCard } from "@/lib/browse-shared";
-import { clockLabel, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
+import { clockLabel, ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { yearOf } from "@/lib/types";
 
 /** Progression affichée sur l'affiche, seulement pour une œuvre commencée et pas terminée. */
@@ -63,7 +63,7 @@ export function MediaCard({
   const pause = pauseOf(card);
 
   return (
-    <Link href={`/oeuvre/${card.mediaId}`} className="group flex flex-col" title={card.title}>
+    <Link href={ficheHref(card.type, card.externalId)} className="group flex flex-col" title={card.title}>
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10 transition group-hover:ring-white/40">
         {card.posterUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

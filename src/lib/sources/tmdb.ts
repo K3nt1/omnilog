@@ -165,3 +165,7 @@ export async function getTmdbDetails(token: string, type: "movie" | "tv", id: st
     extra: { genres: s.genres.map((g) => g.name) },
   };
 }
+
+/** Appel brut à l'API TMDB (fiche média). */
+export const tmdbGet = tmdb;
+export const tmdbImage = (path: string | null | undefined, size: string) => (path ? `${IMG}/${size}${path}` : null);

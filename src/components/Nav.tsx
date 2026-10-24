@@ -18,7 +18,9 @@ const TOOLS = [
 /** Barre de navigation en haut de chaque page ; défile horizontalement sur mobile. */
 export function Nav() {
   const pathname = usePathname();
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  // Une fiche (/oeuvre/films/550) allume l'onglet de son type.
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith(`/oeuvre${href}/`);
   const linkClass = (href: string) =>
     `shrink-0 rounded-lg px-3 py-1.5 text-sm transition ${
       isActive(href) ? "bg-white text-black" : "text-white/70 hover:bg-white/10 hover:text-white"

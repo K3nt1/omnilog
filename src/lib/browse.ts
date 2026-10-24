@@ -19,6 +19,7 @@ interface CardRow {
   entry_id: number;
   media_id: number;
   type: MediaType;
+  external_id: string | null;
   title: string;
   original_title: string | null;
   release_date: string | null;
@@ -40,7 +41,7 @@ interface CardRow {
 }
 
 const CARD_COLUMNS = `
-  l.id AS entry_id, m.id AS media_id, m.type, m.title, m.original_title, m.release_date,
+  l.id AS entry_id, m.id AS media_id, m.type, m.external_id, m.title, m.original_title, m.release_date,
   COALESCE(l.custom_poster_url, m.poster_url) AS poster_url,
   l.status, l.is_focus, l.is_favorite, l.rating,
   l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
@@ -51,6 +52,7 @@ function toCard(row: CardRow): LibraryCard {
     entryId: row.entry_id,
     mediaId: row.media_id,
     type: row.type,
+    externalId: row.external_id,
     title: row.title,
     originalTitle: row.original_title,
     releaseDate: row.release_date,
