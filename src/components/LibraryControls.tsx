@@ -16,6 +16,14 @@ const SORT_LABELS: Record<SortKey, string> = {
   visionnages: "Nombre de visionnages (2 et +)",
 };
 
+/** « Nombre de visionnages », « de lectures », « de parties » selon le type. */
+function repeatLabel(type: LibraryQuery["type"]): string {
+  if (type === "manga") return "Nombre de lectures (2 et +)";
+  if (type === "game") return "Nombre de parties (2 et +)";
+  if (type === null) return "Vu / lu / joué 2 fois et +";
+  return "Nombre de visionnages (2 et +)";
+}
+
 const RATING_LABELS: Record<RatingFilter, string> = {
   "5": "★★★★★ uniquement",
   "4": "★★★★ et plus",
@@ -114,7 +122,7 @@ export function LibraryControls({ basePath, query, fixedType, sorts, durationLab
       >
         {sorts.map((s) => (
           <option key={s} value={s}>
-            {s === "duree" ? durationLabel : SORT_LABELS[s]}
+            {s === "duree" ? durationLabel : s === "visionnages" ? repeatLabel(query.type) : SORT_LABELS[s]}
           </option>
         ))}
       </select>

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToLibrary } from "@/components/fiche/AddToLibrary";
+import { ProgressPanel } from "@/components/fiche/ProgressPanel";
 import { PublisherField } from "@/components/fiche/PublisherField";
 import { SeasonList } from "@/components/fiche/SeasonList";
 import { RichText } from "@/components/RichText";
@@ -124,7 +125,7 @@ function journalWhat(line: JournalLine, f: MediaFiche): string | null {
     return [number, name].filter(Boolean).join(" · ") || null;
   }
   if (line.kind === "chapter" && line.chapter !== null) return `Ch. ${line.chapter.toLocaleString("fr-FR")}`;
-  if (line.kind === "session") return line.minutes ? `Session de ${durationLabel(line.minutes)}` : "Session";
+  if (line.kind === "session") return line.minutes ? durationLabel(line.minutes) : null;
   return null;
 }
 
@@ -220,7 +221,7 @@ export default async function FichePage({ params }: Props) {
                 <Link href={`/${TYPE_SLUGS[type]}`} className="hover:text-white">
                   {TYPE_LABELS[type]}
                 </Link>
-                {entry?.isFocus && " · 🎯 En ce moment"}
+                {entry?.isFocus && (entry.drawnAt ? " · 🎲 Tiré au sort" : " · 🎯 En ce moment")}
               </p>
               <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{f.title}</h1>
               {f.originalTitle && <p className="mt-1 text-lg text-white/60">{f.originalTitle}</p>}
@@ -239,7 +240,21 @@ export default async function FichePage({ params }: Props) {
               </ul>
             )}
 
-            {entry ? <TrackingPanel key={`${entry.status}|${entry.rating}|${entry.isFavorite}|${entry.startedAt}|${entry.completedAt}`} entry={entry} type={type} /> : <AddToLibrary type={type} externalId={id} />}
+            {entry ? (
+              <>
+                <TrackingPanel key={`${entry.status}|${entry.rating}|${entry.isFavorite}|${entry.startedAt}|${entry.completedAt}`} entry={entry} type={type} />
+                <ProgressPanel
+                  key={`${entry.status}|${entry.currentSeason}|${entry.currentEpisode}|${entry.currentChapter}|${entry.pauseSeconds}|${entry.pausePage}|${entry.sessionsCount}`}
+                  entry={entry}
+                  type={type}
+                  seasons={f.seasons}
+                  totalEpisodes={f.totalEpisodes}
+                  totalChapters={f.totalChapters}
+                />
+              </>
+            ) : (
+              <AddToLibrary type={type} externalId={id} />
+            )}
 
             {links.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -416,7 +431,7 @@ export default async function FichePage({ params }: Props) {
                   <li key={line.id} className="space-y-1 px-4 py-3 text-sm">
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="font-medium">
-                        {line.kind === "session" ? "Le" : VERB[type]} le {dateLabel(line.at)}
+                        {line.kind === "session" ? "Session du" : line.kind === "complete" ? "Terminé le" : `${VERB[type]} le`} {dateLabel(line.at)}
                       </span>
                       {what && <span className="text-sky-300">{what}</span>}
                       {line.rating !== null && <span className="text-amber-300">★ {starsLabel(line.rating)}</span>}

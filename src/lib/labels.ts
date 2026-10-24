@@ -48,12 +48,13 @@ export function statusFromSlug(slug: string | undefined): LibraryStatus | null {
 /** Ordre d'affichage des statuts dans les filtres. */
 export const STATUS_ORDER: LibraryStatus[] = ["in_progress", "planned", "completed", "on_hold", "dropped"];
 
+/** Watchlist pour ce qu'on regarde, backlog pour ce qu'on lit ou joue. */
 const PLANNED: Record<MediaType, string> = {
-  movie: "À voir",
-  tv: "À voir",
-  anime: "À voir",
-  manga: "À lire",
-  game: "À jouer",
+  movie: "Watchlist",
+  tv: "Watchlist",
+  anime: "Watchlist",
+  manga: "Backlog",
+  game: "Backlog",
 };
 
 const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
@@ -68,7 +69,7 @@ const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
 export function statusLabel(status: LibraryStatus, type: MediaType | null, plural = false): string {
   switch (status) {
     case "planned":
-      return type ? PLANNED[type] : "Watchlist";
+      return type ? PLANNED[type] : "Watchlist / Backlog";
     case "in_progress":
       return "En cours";
     case "on_hold":
@@ -80,7 +81,7 @@ export function statusLabel(status: LibraryStatus, type: MediaType | null, plura
   }
 }
 
-/** Libellé du bouton d'ajout dans la recherche (« + À voir »…). */
+/** Libellé du bouton d'ajout (« + Watchlist », « + Backlog »). */
 export const plannedLabel = (type: MediaType) => PLANNED[type];
 
 /** Note sur 10 (base) → « 4,5 » étoiles. */
@@ -162,3 +163,32 @@ export function episodeName(note: string, seriesTitles: (string | null)[]): stri
 /** Adresse de la fiche d'une œuvre : /oeuvre/films/550 (le type dans l'adresse, l'identifiant de la source). */
 export const ficheHref = (type: MediaType, externalId: string | null) =>
   externalId ? `/oeuvre/${TYPE_SLUGS[type]}/${externalId}` : `/${TYPE_SLUGS[type]}`;
+
+/** Où on en est, en une ligne : « S08E05 · ⏸ 12:34 », « Ch. 42 · p. 12 », « 3 sessions · 4 h 30 · Velen »… */
+export function positionLine(p: {
+  type: MediaType;
+  status: LibraryStatus;
+  currentSeason: number | null;
+  currentEpisode: number | null;
+  currentChapter: number | null;
+  pauseSeconds: number | null;
+  pausePage: number | null;
+  sessionsCount?: number;
+  playtimeMinutes?: number | null;
+  gameCheckpoint?: string | null;
+}): string {
+  const parts: string[] = [];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (p.type === "tv") parts.push(`S${pad(p.currentSeason ?? 1)}E${pad(p.currentEpisode ?? 1)}`);
+  if (p.type === "anime") parts.push(`Ép. ${p.currentEpisode ?? 1}`);
+  if (p.type === "manga") parts.push(`Ch. ${(p.currentChapter ?? 1).toLocaleString("fr-FR")}`);
+  if (p.pauseSeconds !== null) parts.push(`⏸ ${clockLabel(p.pauseSeconds)}`);
+  if (p.pausePage !== null) parts.push(`p. ${p.pausePage}`);
+  if (p.type === "game") {
+    if (p.sessionsCount) parts.push(`${p.sessionsCount} session${p.sessionsCount > 1 ? "s" : ""}`);
+    if (p.playtimeMinutes) parts.push(durationLabel(p.playtimeMinutes));
+    if (p.gameCheckpoint) parts.push(p.gameCheckpoint);
+  }
+  if (p.type === "movie" && p.pauseSeconds === null) parts.push("À regarder");
+  return parts.filter(Boolean).join(" · ");
+}

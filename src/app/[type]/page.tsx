@@ -3,7 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MediaCard } from "@/components/MediaCard";
-import { getTypeOverview, type ActivityItem } from "@/lib/browse";
+import { FocusBanner } from "@/components/FocusBanner";
+import { getFocusOverview, getTypeOverview, type ActivityItem } from "@/lib/browse";
 import type { LibraryCard } from "@/lib/browse-shared";
 import {
   dateLabel,
@@ -53,6 +54,7 @@ function activityWhen(item: ActivityItem, type: MediaType): string {
   const when = dateLabel(item.at);
   if (item.kind === "done") return `${statusLabel("completed", type)} le ${when}`;
   if (item.logKind === "session") return `Le ${when}`;
+  if (item.logKind === "complete") return `Terminé le ${when}`;
   return `${VERB[type]} le ${when}`;
 }
 
@@ -88,7 +90,7 @@ export default async function TypePage({ params }: Props) {
   const type = typeFromSlug((await params).type);
   if (!type) notFound();
   const { env } = getCloudflareContext();
-  const overview = await getTypeOverview(env.DB, type);
+  const [overview, focus] = await Promise.all([getTypeOverview(env.DB, type), getFocusOverview(env.DB, type)]);
   const base = `/${TYPE_SLUGS[type]}`;
   const total = Object.values(overview.statusCounts).reduce((a, b) => a + b, 0);
   const listHref = (status: LibraryStatus | null, favorite = false) => {
@@ -142,6 +144,8 @@ export default async function TypePage({ params }: Props) {
         </p>
       ) : (
         <>
+          <FocusBanner overview={focus} type={type} />
+
           {overview.activity.length > 0 && (
             <section>
               <h2 className="mb-3 text-xl font-semibold">Activité récente</h2>

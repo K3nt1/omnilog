@@ -36,6 +36,15 @@ export interface LibraryEntry {
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  pauseSeconds: number | null;
+  pausePage: number | null;
+  gameCheckpoint: string | null;
+  sessionsCount: number;
+  playtimeMinutes: number | null;
+  /** Tirée au sort et pas encore commencée. */
+  drawnAt: string | null;
+  /** Une progression faite dans Omnilog peut être annulée. */
+  canUndo: boolean;
 }
 
 export interface JournalLine {
@@ -90,6 +99,13 @@ interface MediaRow {
   current_season: number | null;
   current_episode: number | null;
   current_chapter: number | null;
+  pause_seconds: number | null;
+  pause_page: number | null;
+  game_checkpoint: string | null;
+  sessions_count: number;
+  playtime_minutes: number | null;
+  drawn_at: string | null;
+  can_undo: number;
 }
 
 interface JournalRow {
@@ -123,7 +139,9 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
       .prepare(
         `SELECT m.*, l.id AS entry_id, l.status, l.is_focus, l.is_favorite, l.rating, l.review,
                 l.started_at, l.completed_at, l.created_at AS added_at, l.custom_poster_url, l.custom_backdrop_url,
-                l.current_season, l.current_episode, l.current_chapter
+                l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
+                l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at,
+                EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.undo_json IS NOT NULL) AS can_undo
          FROM media m LEFT JOIN library_entries l ON l.media_id = m.id AND l.user_id = ?
          WHERE m.type = ? AND m.source = ? AND m.external_id = ?`,
       )
@@ -178,6 +196,13 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
           currentSeason: row.current_season,
           currentEpisode: row.current_episode,
           currentChapter: row.current_chapter,
+          pauseSeconds: row.pause_seconds,
+          pausePage: row.pause_page,
+          gameCheckpoint: row.game_checkpoint,
+          sessionsCount: row.sessions_count,
+          playtimeMinutes: row.playtime_minutes,
+          drawnAt: row.drawn_at,
+          canUndo: row.can_undo === 1,
         }
       : null;
 
