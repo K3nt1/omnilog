@@ -34,6 +34,13 @@ function writeCache(key: string, data: SearchResponse) {
   }
 }
 
+function searchUrl(q: string, types: string, genre: string | null): string {
+  if (!q) return "/recherche";
+  const params = new URLSearchParams({ q, types });
+  if (genre) params.set("genre", genre);
+  return `/recherche?${params}`;
+}
+
 function parseTypes(value: string | null): Set<MediaType> {
   const types = (value ?? "").split(",").filter((t): t is MediaType => (MEDIA_TYPES as readonly string[]).includes(t));
   return new Set(types.length > 0 ? types : MEDIA_TYPES);
@@ -56,6 +63,9 @@ function SearchPage() {
   const initialKey = `${(params.get("q") ?? "").trim()}|${[...parseTypes(params.get("types"))].join(",")}`;
   const [data, setData] = useState<SearchResponse | null>(() => (typeof window === "undefined" ? null : readCache(initialKey)));
   const restoredKey = useRef(data ? initialKey : null);
+  // Filtre par genre, appliqué sur les résultats déjà reçus (aucune nouvelle recherche).
+  const [genre, setGenre] = useState<string | null>(params.get("genre"));
+  const genreRef = useRef(genre);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addStates, setAddStates] = useState<Record<string, AddState>>({});
@@ -67,7 +77,7 @@ function SearchPage() {
   // Recherche automatique 400 ms après la dernière frappe.
   useEffect(() => {
     const key = `${trimmed}|${typesParam}`;
-    const url = trimmed ? `/recherche?${new URLSearchParams({ q: trimmed, types: typesParam })}` : "/recherche";
+    const url = searchUrl(trimmed, typesParam, genreRef.current);
     if (trimmed.length < 2) {
       window.history.replaceState(null, "", url);
       return;
@@ -100,13 +110,27 @@ function SearchPage() {
     };
   }, [trimmed, typesParam]);
 
+  // Genres présents dans les résultats, avec leur nombre.
+  const genreOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of data?.results ?? []) for (const g of r.genres ?? []) counts.set(g, (counts.get(g) ?? 0) + 1);
+    return [...counts].sort((a, b) => a[0].localeCompare(b[0], "fr"));
+  }, [data]);
+
+  function chooseGenre(value: string | null) {
+    setGenre(value);
+    genreRef.current = value;
+    window.history.replaceState(null, "", searchUrl(trimmed, typesParam, value));
+  }
+
   const grouped = useMemo(() => {
     const groups = new Map<MediaType, SearchResult[]>();
     for (const result of data?.results ?? []) {
+      if (genre && !(result.genres ?? []).includes(genre)) continue;
       groups.set(result.type, [...(groups.get(result.type) ?? []), result]);
     }
     return MEDIA_TYPES.filter((t) => groups.has(t)).map((t) => [t, groups.get(t)!] as const);
-  }, [data]);
+  }, [data, genre]);
 
   function toggleType(type: MediaType) {
     setTypes((current) => {
@@ -171,6 +195,22 @@ function SearchPage() {
             {TYPE_LABELS[type]}
           </button>
         ))}
+        {active && (genreOptions.length > 0 || genre) && (
+          <select
+            value={genre ?? ""}
+            onChange={(e) => chooseGenre(e.target.value || null)}
+            aria-label="Filtrer par genre"
+            className="rounded-full border border-white/20 bg-neutral-950 px-3 py-1 text-sm text-white/80 outline-none focus:border-white/50"
+          >
+            <option value="">Tous les genres</option>
+            {genre && !genreOptions.some(([g]) => g === genre) && <option value={genre}>{genre}</option>}
+            {genreOptions.map(([g, n]) => (
+              <option key={g} value={g}>
+                {g} ({n})
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {active && loading && <p className="mt-6 text-white/60">Recherche…</p>}
@@ -178,6 +218,14 @@ function SearchPage() {
       {active && data && data.errors.length > 0 && (
         <p className="mt-6 rounded-lg bg-amber-500/10 px-4 py-2 text-sm text-amber-300">
           Résultats partiels : {data.errors.map((e) => e.message).join(" · ")}
+        </p>
+      )}
+      {active && data && !loading && data.results.length > 0 && grouped.length === 0 && genre && (
+        <p className="mt-6 text-white/60">
+          Aucun résultat dans le genre « {genre} ».{" "}
+          <button type="button" onClick={() => chooseGenre(null)} className="underline">
+            Voir tous les genres
+          </button>
         </p>
       )}
       {active && data && !loading && data.results.length === 0 && (

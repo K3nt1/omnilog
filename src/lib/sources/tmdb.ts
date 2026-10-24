@@ -35,6 +35,16 @@ interface TmdbMultiItem {
 /** Genre « Animation » chez TMDB. */
 const TMDB_ANIMATION = 16;
 
+/** Genres TMDB (films et séries) : les résultats de recherche ne donnent que leurs identifiants. */
+const TMDB_GENRES: Record<number, string[]> = {
+  28: ["Action"], 12: ["Aventure"], 16: ["Animation"], 35: ["Comédie"], 80: ["Crime"], 99: ["Documentaire"],
+  18: ["Drame"], 10751: ["Familial"], 14: ["Fantastique"], 36: ["Histoire"], 27: ["Horreur"], 10402: ["Musique"],
+  9648: ["Mystère"], 10749: ["Romance"], 878: ["Science-Fiction"], 10770: ["Téléfilm"], 53: ["Thriller"],
+  10752: ["Guerre"], 37: ["Western"], 10759: ["Action", "Aventure"], 10762: ["Enfants"], 10763: ["Information"],
+  10764: ["Téléréalité"], 10765: ["Science-Fiction", "Fantastique"], 10766: ["Feuilleton"], 10767: ["Talk-show"],
+  10768: ["Guerre", "Politique"],
+};
+
 export async function searchTmdb(token: string, query: string, types: Set<MediaType>): Promise<SearchResult[]> {
   const data = await tmdb<{ results: TmdbMultiItem[] }>(token, "/search/multi", {
     query,
@@ -58,6 +68,7 @@ export async function searchTmdb(token: string, query: string, types: Set<MediaT
         year: yearOf(type === "movie" ? item.release_date : item.first_air_date),
         posterUrl: poster(item.poster_path),
         libraryStatus: null,
+        genres: [...new Set((item.genre_ids ?? []).flatMap((id) => TMDB_GENRES[id] ?? []))],
         matchTitles: [title, original].filter((t): t is string => !!t),
         animeLike: item.original_language === "ja" && (item.genre_ids ?? []).includes(TMDB_ANIMATION),
       },

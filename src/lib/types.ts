@@ -30,6 +30,8 @@ export interface SearchResult {
   posterUrl: string | null;
   /** Statut dans ta bibliothèque si l'œuvre y est déjà, sinon null. */
   libraryStatus: LibraryStatus | null;
+  /** Genres en français (« Science-Fiction »), pour filtrer les résultats. */
+  genres: string[];
   /** Interne (retiré avant la réponse) : tous les titres connus, pour repérer les doublons entre sources. */
   matchTitles?: string[];
   /** Interne : film ou série TMDB d'animation japonaise (probablement aussi sur MyAnimeList). */

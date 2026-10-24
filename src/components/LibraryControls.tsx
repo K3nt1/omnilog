@@ -36,7 +36,7 @@ interface Props {
 }
 
 /** Recherche, note, tri : met à jour l'adresse, la page se recharge côté serveur avec les nouveaux filtres. */
-export function LibraryControls({ basePath, query, fixedType, sorts, durationLabel, genres }: Props) {
+export function LibraryControls({ basePath, query, fixedType, sorts, durationLabel, genres = [] }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(query.search);

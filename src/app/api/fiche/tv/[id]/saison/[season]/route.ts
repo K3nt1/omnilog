@@ -27,6 +27,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: error.message }, { status: error.status === 404 ? 404 : 502 });
     }
     console.error("Saison en échec", id, season, error);
-    return NextResponse.json({ error: "Erreur inattendue." }, { status: 500 });
+    const detail = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: `Erreur inattendue : ${detail}` }, { status: 500 });
   }
 }
