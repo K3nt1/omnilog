@@ -59,6 +59,53 @@ export interface StoredFiche {
   watchRegion: string;
 }
 
+/** Ligne renvoyée par la requête œuvre + suivi (colonnes de media, puis celles de library_entries). */
+interface MediaRow {
+  id: number;
+  title: string;
+  original_title: string | null;
+  overview: string | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  release_date: string | null;
+  runtime_minutes: number | null;
+  total_episodes: number | null;
+  total_chapters: number | null;
+  total_volumes: number | null;
+  is_ongoing: number;
+  extra_json: string | null;
+  publisher_fr: string | null;
+  external_links_json: string | null;
+  entry_id: number | null;
+  status: LibraryStatus;
+  is_focus: number;
+  is_favorite: number;
+  rating: number | null;
+  review: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  added_at: string;
+  custom_poster_url: string | null;
+  custom_backdrop_url: string | null;
+  current_season: number | null;
+  current_episode: number | null;
+  current_chapter: number | null;
+}
+
+interface JournalRow {
+  id: number;
+  kind: string;
+  logged_at: string;
+  season: number | null;
+  episode: number | null;
+  chapter: number | null;
+  duration_minutes: number | null;
+  rating: number | null;
+  review: string | null;
+  tags_json: string | null;
+  note: string | null;
+}
+
 const parseJson = <T,>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
   try {
@@ -94,7 +141,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     db.prepare("SELECT watch_region FROM users WHERE id = ?").bind(CURRENT_USER_ID),
   ]);
 
-  const row = mediaRows.results[0] as Record<string, any> | undefined;
+  const row = mediaRows.results[0] as unknown as MediaRow | undefined;
   const media: StoredMedia | null = row
     ? {
         id: row.id,
@@ -134,7 +181,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
         }
       : null;
 
-  const journal = (journalRows.results as Record<string, any>[]).map((r) => ({
+  const journal = (journalRows.results as unknown as JournalRow[]).map((r) => ({
     id: r.id,
     kind: r.kind,
     at: r.logged_at,
