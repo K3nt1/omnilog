@@ -67,7 +67,7 @@ function Row({ title, count, cards, href }: { title: string; count: number; card
           {count > cards.length ? `Tout voir (${nf.format(count)}) →` : "Ouvrir en grille →"}
         </Link>
       </div>
-      <ul className="scroll-row -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-3">
+      <ul className="scroll-row -mx-4 -mt-1 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pt-1 pb-3">
         {cards.map((card) => (
           <li key={card.entryId} className="w-28 shrink-0 snap-start sm:w-32 lg:w-36">
             <MediaCard card={card} />
@@ -144,7 +144,7 @@ export default async function TypePage({ params }: Props) {
           {overview.activity.length > 0 && (
             <section>
               <h2 className="mb-3 text-xl font-semibold">Activité récente</h2>
-              <ul className="scroll-row -mx-4 flex gap-3 overflow-x-auto px-4 pb-3">
+              <ul className="scroll-row -mx-4 -mt-1 flex gap-3 overflow-x-auto px-4 pt-1 pb-3">
                 {overview.activity.map((item, i) => {
                   const what = activityWhat(item);
                   return (
