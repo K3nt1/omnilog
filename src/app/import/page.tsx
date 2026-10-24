@@ -250,21 +250,26 @@ export default function ImportPage() {
       addedDate: letterboxdAddedDate(f),
       name: f.name,
       refs: f.watches.map((w) => w.ref).slice(0, 50),
+      watched: f.status === "completed",
     }));
-    const done = { dates: 0, episodes: 0 };
+    const done = { dates: 0, episodes: 0, removed: 0 };
     try {
       for (let i = 0; i < items.length; i += IMPORT_BACKFILL_CHUNK) {
-        const res = await postJson<{ dates: number; episodes: number }>("/api/import/backfill", {
+        const res = await postJson<{ dates: number; episodes: number; removed: number }>("/api/import/backfill", {
           source: "letterboxd",
           items: items.slice(i, i + IMPORT_BACKFILL_CHUNK),
         });
         done.dates += res.dates;
         done.episodes += res.episodes;
+        done.removed += res.removed;
         setDates({ running: true, message: `${Math.min(i + IMPORT_BACKFILL_CHUNK, items.length)} / ${items.length}…` });
       }
       setDates({
         running: false,
-        message: `Terminé : ${done.dates} dates d'ajout corrigées, ${done.episodes} épisodes complétés (le reste était déjà bon).`,
+        message:
+          `Terminé : ${done.dates} dates d'ajout corrigées, ${done.episodes} épisodes complétés` +
+          (done.removed > 0 ? `, ${done.removed} visionnages d'épisodes non vus retirés` : "") +
+          " (le reste était déjà bon).",
       });
     } catch (e) {
       setDates({

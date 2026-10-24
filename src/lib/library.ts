@@ -346,28 +346,37 @@ export async function insertImportedLogs(db: D1Database, entryId: number, logs: 
   );
 }
 
+export interface BackfillCounts {
+  dates: number;
+  episodes: number;
+  removed: number;
+}
+
 export interface LetterboxdBackfillItem {
   key: string; // clé de l'entrée Letterboxd (letterboxdLinkKey)
   addedDate: string | null; // AAAA-MM-JJ
   name: string; // titre Letterboxd (« Sherlock: The Great Game »)
   refs: string[]; // visionnages du journal (external_ref)
+  watched: boolean; // marqué vu sur Letterboxd (sinon : watchlist)
 }
 
 /**
  * Complète un import Letterboxd fait avant la v0.4.0, sans tout réimporter :
  * - date d'ajout : la date Letterboxd au lieu de la date de l'import (on ne fait que la reculer) ;
  * - séries : le nom de l'épisode sur chaque visionnage, et un visionnage pour les épisodes marqués vus sans date.
- * Renvoie le nombre de dates et d'épisodes complétés.
+ *   (Les épisodes seulement en watchlist n'en ont pas : on retire ceux créés à tort par la première version.)
+ * Renvoie le nombre de dates corrigées, d'épisodes complétés et de visionnages retirés.
  */
 export async function backfillLetterboxd(
   db: D1Database,
   items: LetterboxdBackfillItem[],
-): Promise<{ dates: number; episodes: number }> {
-  if (items.length === 0) return { dates: 0, episodes: 0 };
+): Promise<BackfillCounts> {
+  const count: BackfillCounts = { dates: 0, episodes: 0, removed: 0 };
+  if (items.length === 0) return count;
   const links = await findImportLinks(db, "letterboxd", items.map((i) => i.key));
 
   const statements: D1PreparedStatement[] = [];
-  const kinds: ("date" | "episode")[] = [];
+  const kinds: (keyof BackfillCounts)[] = [];
   const setDate = db.prepare(
     `UPDATE library_entries SET created_at = ?1 WHERE user_id = ?2 AND media_id = ?3 AND created_at > ?1`,
   );
@@ -376,7 +385,7 @@ export async function backfillLetterboxd(
     if (!link) continue;
     if (item.addedDate) {
       statements.push(setDate.bind(`${item.addedDate}T00:00:00.000Z`, CURRENT_USER_ID, link.mediaId));
-      kinds.push("date");
+      kinds.push("dates");
     }
     if (link.type !== "tv") continue;
     if (item.refs.length > 0) {
@@ -388,6 +397,13 @@ export async function backfillLetterboxd(
           )
           .bind(item.name, ...item.refs),
       );
+    } else if (!item.watched) {
+      // Épisode seulement en watchlist : aucun visionnage.
+      statements.push(
+        db.prepare("DELETE FROM progress_log WHERE external_ref = ?").bind(`${item.key}#vu`),
+      );
+      kinds.push("removed");
+      continue;
     } else {
       // Épisode marqué vu sur Letterboxd sans date dans le journal : un visionnage à la date d'ajout.
       statements.push(
@@ -405,16 +421,13 @@ export async function backfillLetterboxd(
           ),
       );
     }
-    kinds.push("episode");
+    kinds.push("episodes");
   }
-  if (statements.length === 0) return { dates: 0, episodes: 0 };
+  if (statements.length === 0) return count;
 
   const results = await db.batch(statements);
-  const count = { dates: 0, episodes: 0 };
   results.forEach((r, i) => {
-    const changes = r.meta.changes ?? 0;
-    if (kinds[i] === "date") count.dates += changes;
-    else count.episodes += changes;
+    count[kinds[i]] += r.meta.changes ?? 0;
   });
   return count;
 }

@@ -1,4 +1,4 @@
-// POST /api/import/backfill  { "source": "letterboxd", "items": [{ "key", "addedDate", "name", "refs" }, ...] }
+// POST /api/import/backfill  { "source": "letterboxd", "items": [{ "key", "addedDate", "name", "refs", "watched" }, ...] }
 // Complète un import Letterboxd fait avant la v0.4.0 : dates d'ajout, noms des épisodes de séries.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
@@ -17,7 +17,8 @@ function isItem(v: unknown): v is LetterboxdBackfillItem {
     isString(i.name, 300) &&
     Array.isArray(i.refs) &&
     i.refs.length <= 50 &&
-    i.refs.every((r) => isString(r))
+    i.refs.every((r) => isString(r)) &&
+    typeof i.watched === "boolean"
   );
 }
 
