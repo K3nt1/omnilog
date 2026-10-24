@@ -6,6 +6,7 @@ import { parseMalXml } from "@/lib/import/mal-parse";
 import {
   IMPORT_BATCH_SIZE,
   IMPORT_CHECK_CHUNK,
+  IMPORT_BACKFILL_CHUNK,
   letterboxdLinkKey,
   type ImportCheckResponse,
   type ImportItemResult,
@@ -14,6 +15,7 @@ import {
   type MalImportItem,
   type MatchCandidate,
 } from "@/lib/import/types";
+import { letterboxdAddedDate } from "@/lib/import/added-date";
 import { readZipTextFiles } from "@/lib/import/unzip";
 import type { SearchResponse } from "@/lib/types";
 
@@ -115,11 +117,12 @@ export default function ImportPage() {
   const [validated, setValidated] = useState<Validated[]>([]);
   const [progress, setProgress] = useState<{ source: Source; done: number; total: number } | null>(null);
   const [check, setCheck] = useState<{ running: boolean; message: string | null }>({ running: false, message: null });
+  const [dates, setDates] = useState<{ running: boolean; message: string | null }>({ running: false, message: null });
   const stopRef = useRef(false);
 
   const filmsByKey = useMemo(() => new Map((lb?.films ?? []).map((f) => [f.key, f])), [lb]);
   const filmsByLinkKey = useMemo(() => new Map((lb?.films ?? []).map((f) => [letterboxdLinkKey(f), f])), [lb]);
-  const running = progress !== null || check.running;
+  const running = progress !== null || check.running || dates.running;
 
   function record(batch: ImportItemResult[]) {
     setResults((current) => {
@@ -186,7 +189,7 @@ export default function ImportPage() {
       await postJson("/api/import/undo", {
         source: "letterboxd",
         key: letterboxdLinkKey(item.film),
-        refs: item.film.watches.map((w) => w.ref),
+        refs: [...item.film.watches.map((w) => w.ref), `${letterboxdLinkKey(item.film)}#vu`],
       });
       record([
         item.previous && PENDING.includes(item.previous.status)
@@ -232,6 +235,47 @@ export default function ImportPage() {
       });
     } catch (e) {
       setCheck({ running: false, message: e instanceof Error ? e.message : "Vérification impossible." });
+    }
+  }
+
+  /**
+   * Complète un import fait avant la v0.4.0, sans tout réimporter : vraie date d'ajout Letterboxd
+   * (avant, c'était la date de l'import) et nom de chaque épisode vu pour les séries.
+   */
+  async function completeImport() {
+    if (!lb) return;
+    setDates({ running: true, message: null });
+    const items = lb.films.map((f) => ({
+      key: letterboxdLinkKey(f),
+      addedDate: letterboxdAddedDate(f),
+      name: f.name,
+      refs: f.watches.map((w) => w.ref).slice(0, 50),
+      watched: f.status === "completed",
+    }));
+    const done = { dates: 0, episodes: 0, removed: 0 };
+    try {
+      for (let i = 0; i < items.length; i += IMPORT_BACKFILL_CHUNK) {
+        const res = await postJson<{ dates: number; episodes: number; removed: number }>("/api/import/backfill", {
+          source: "letterboxd",
+          items: items.slice(i, i + IMPORT_BACKFILL_CHUNK),
+        });
+        done.dates += res.dates;
+        done.episodes += res.episodes;
+        done.removed += res.removed;
+        setDates({ running: true, message: `${Math.min(i + IMPORT_BACKFILL_CHUNK, items.length)} / ${items.length}…` });
+      }
+      setDates({
+        running: false,
+        message:
+          `Terminé : ${done.dates} dates d'ajout corrigées, ${done.episodes} épisodes complétés` +
+          (done.removed > 0 ? `, ${done.removed} visionnages d'épisodes non vus retirés` : "") +
+          " (le reste était déjà bon).",
+      });
+    } catch (e) {
+      setDates({
+        running: false,
+        message: `Arrêté après ${done.dates} dates et ${done.episodes} épisodes : ${e instanceof Error ? e.message : "erreur"}. Tu peux relancer, rien ne sera compté deux fois.`,
+      });
     }
   }
 
@@ -375,8 +419,18 @@ export default function ImportPage() {
               >
                 {check.running ? "Vérification…" : "Vérifier les films manquants"}
               </button>
+              <button
+                type="button"
+                disabled={running}
+                onClick={completeImport}
+                title="Pour un import fait avant la v0.4.0 : remet la date d'ajout Letterboxd et le nom des épisodes de séries, sans tout réimporter."
+                className="rounded-lg bg-white/10 px-4 py-2 hover:bg-white/20 disabled:opacity-40"
+              >
+                {dates.running ? "Complétion…" : "Compléter l'import existant"}
+              </button>
             </div>
             {check.message && <p className="rounded-lg bg-white/5 px-3 py-2 text-white/80">{check.message}</p>}
+            {dates.message && <p className="rounded-lg bg-white/5 px-3 py-2 text-white/80">{dates.message}</p>}
           </div>
         )}
       </section>

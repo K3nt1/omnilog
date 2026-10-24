@@ -92,3 +92,9 @@ export const IMPORT_CHECK_CHUNK = 450;
 export interface ImportResponse {
   results: ImportItemResult[];
 }
+
+/**
+ * Entrées complétées par appel (dates d'ajout, épisodes) : jusqu'à 2 requêtes D1 chacune, plus une,
+ * sous la limite de 50 requêtes par appel du plan gratuit.
+ */
+export const IMPORT_BACKFILL_CHUNK = 24;

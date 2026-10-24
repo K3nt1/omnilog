@@ -24,3 +24,32 @@ body {
 	color: var(--foreground);
 	font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Thème sombre : barres de défilement et listes déroulantes natives en sombre (sinon blanches sous Windows). */
+:root {
+	color-scheme: dark;
+}
+
+select option {
+	background-color: #171717;
+	color: #ededed;
+}
+
+/* Rangées qui défilent horizontalement : barre fine et discrète, visible au survol. */
+.scroll-row {
+	scrollbar-width: thin;
+	scrollbar-color: transparent transparent;
+}
+.scroll-row:hover {
+	scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+}
+.scroll-row::-webkit-scrollbar {
+	height: 6px;
+}
+.scroll-row::-webkit-scrollbar-thumb {
+	background: transparent;
+	border-radius: 9999px;
+}
+.scroll-row:hover::-webkit-scrollbar-thumb {
+	background: rgb(255 255 255 / 0.25);
+}
