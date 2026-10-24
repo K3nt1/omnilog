@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { plannedLabel, statusLabel, TYPE_LABELS } from "@/lib/labels";
 import {
   MEDIA_TYPES,
   type LibraryStatus,
@@ -8,37 +9,6 @@ import {
   type SearchResponse,
   type SearchResult,
 } from "@/lib/types";
-
-const TYPE_LABELS: Record<MediaType, string> = {
-  movie: "Films",
-  tv: "Séries",
-  anime: "Animés",
-  manga: "Mangas",
-  game: "Jeux",
-};
-
-const PLANNED_LABEL: Record<MediaType, string> = {
-  movie: "À voir",
-  tv: "À voir",
-  anime: "À voir",
-  manga: "À lire",
-  game: "À jouer",
-};
-
-function statusLabel(type: MediaType, status: LibraryStatus): string {
-  switch (status) {
-    case "planned":
-      return PLANNED_LABEL[type];
-    case "in_progress":
-      return "En cours";
-    case "on_hold":
-      return "En pause";
-    case "completed":
-      return "Terminé";
-    case "dropped":
-      return "Abandonné";
-  }
-}
 
 type AddState = "adding" | "error";
 
@@ -190,7 +160,7 @@ export default function SearchPage() {
                 <div className="mt-2">
                   {r.libraryStatus ? (
                     <span className="inline-block rounded-md bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">
-                      ✓ {statusLabel(r.type, r.libraryStatus)}
+                      ✓ {statusLabel(r.libraryStatus, r.type)}
                     </span>
                   ) : (
                     <button
@@ -203,7 +173,7 @@ export default function SearchPage() {
                         ? "Ajout…"
                         : addStates[r.key] === "error"
                           ? "Échec, réessayer"
-                          : `+ ${PLANNED_LABEL[r.type]}`}
+                          : `+ ${plannedLabel(r.type)}`}
                     </button>
                   )}
                 </div>

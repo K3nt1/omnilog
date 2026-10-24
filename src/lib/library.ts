@@ -1,5 +1,6 @@
 // Accès à la base D1 pour la bibliothèque.
 import type { LibraryStatus, MediaDetails, SearchResult } from "./types";
+import { mediaSearchText } from "./search-text";
 import { resultKey, type MediaSource, type MediaType } from "./types";
 
 /** Utilisateur unique pour l'instant (créé par la migration 0002). */
@@ -47,15 +48,16 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
     .prepare(
       `INSERT INTO media (type, source, external_id, title, original_title, overview, poster_url, backdrop_url,
                           release_date, runtime_minutes, total_episodes, total_chapters, total_volumes,
-                          is_ongoing, extra_json, fetched_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                          is_ongoing, extra_json, fetched_at, search_text)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
        ON CONFLICT (type, source, external_id) DO UPDATE SET
          title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
          poster_url = excluded.poster_url, backdrop_url = excluded.backdrop_url,
          release_date = excluded.release_date, runtime_minutes = excluded.runtime_minutes,
          total_episodes = excluded.total_episodes, total_chapters = excluded.total_chapters,
          total_volumes = excluded.total_volumes, is_ongoing = excluded.is_ongoing,
-         extra_json = excluded.extra_json, fetched_at = excluded.fetched_at
+         extra_json = excluded.extra_json, fetched_at = excluded.fetched_at,
+         search_text = excluded.search_text
        RETURNING id`,
     )
     .bind(
@@ -75,6 +77,7 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
       details.isOngoing ? 1 : 0,
       JSON.stringify(details.extra),
       new Date().toISOString(),
+      mediaSearchText(details.title, details.originalTitle),
     )
     .first<{ id: number }>();
 
@@ -255,6 +258,8 @@ export interface ImportedEntry {
   currentChapter: number | null;
   startedAt: string | null;
   completedAt: string | null;
+  /** Date d'ajout sur le site d'origine (AAAA-MM-JJ) ; sinon la date de l'import. */
+  addedAt: string | null;
 }
 
 /**
@@ -270,9 +275,12 @@ export async function upsertImportedEntry(
   const row = await db
     .prepare(
       `INSERT INTO library_entries (user_id, media_id, media_type, status, rating, review, is_favorite,
-                                    current_episode, current_chapter, started_at, completed_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                                    current_episode, current_chapter, started_at, completed_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))
        ON CONFLICT (user_id, media_id) DO UPDATE SET
+         -- Date d'ajout : on garde la plus ancienne (plusieurs entrées Letterboxd peuvent viser la même série).
+         created_at = MIN(created_at, excluded.created_at),
          -- Jamais de retour en arrière : une œuvre terminée ne redevient pas « à voir ».
          status = CASE WHEN status = 'completed' AND excluded.status = 'planned' THEN status ELSE excluded.status END,
          is_focus = CASE WHEN excluded.status = 'in_progress' AND status = 'in_progress' THEN is_focus ELSE 0 END,
@@ -297,6 +305,7 @@ export async function upsertImportedEntry(
       entry.currentChapter,
       entry.startedAt,
       entry.completedAt,
+      entry.addedAt ? `${entry.addedAt}T00:00:00.000Z` : null,
     )
     .first<{ id: number }>();
   if (!row) throw new Error("Impossible d'enregistrer l'entrée de bibliothèque");
@@ -310,14 +319,16 @@ export interface ImportedLog {
   tags: string[];
   externalRef: string;
   loggedAt: string; // ISO 8601
+  /** Épisode de série (titre Letterboxd « Sherlock: The Great Game »), ou point d'avancée d'un jeu. */
+  note: string | null;
 }
 
 /** Insère l'historique des visionnages ; les entrées déjà importées (même external_ref) sont ignorées. */
 export async function insertImportedLogs(db: D1Database, entryId: number, logs: ImportedLog[]): Promise<void> {
   if (logs.length === 0) return;
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   await db.batch(
     logs.map((log) =>
@@ -329,7 +340,94 @@ export async function insertImportedLogs(db: D1Database, entryId: number, logs: 
         log.tags.length > 0 ? JSON.stringify(log.tags) : null,
         log.externalRef,
         log.loggedAt,
+        log.note,
       ),
     ),
   );
+}
+
+export interface BackfillCounts {
+  dates: number;
+  episodes: number;
+  removed: number;
+}
+
+export interface LetterboxdBackfillItem {
+  key: string; // clé de l'entrée Letterboxd (letterboxdLinkKey)
+  addedDate: string | null; // AAAA-MM-JJ
+  name: string; // titre Letterboxd (« Sherlock: The Great Game »)
+  refs: string[]; // visionnages du journal (external_ref)
+  watched: boolean; // marqué vu sur Letterboxd (sinon : watchlist)
+}
+
+/**
+ * Complète un import Letterboxd fait avant la v0.4.0, sans tout réimporter :
+ * - date d'ajout : la date Letterboxd au lieu de la date de l'import (on ne fait que la reculer) ;
+ * - séries : le nom de l'épisode sur chaque visionnage, et un visionnage pour les épisodes marqués vus sans date.
+ *   (Les épisodes seulement en watchlist n'en ont pas : on retire ceux créés à tort par la première version.)
+ * Renvoie le nombre de dates corrigées, d'épisodes complétés et de visionnages retirés.
+ */
+export async function backfillLetterboxd(
+  db: D1Database,
+  items: LetterboxdBackfillItem[],
+): Promise<BackfillCounts> {
+  const count: BackfillCounts = { dates: 0, episodes: 0, removed: 0 };
+  if (items.length === 0) return count;
+  const links = await findImportLinks(db, "letterboxd", items.map((i) => i.key));
+
+  const statements: D1PreparedStatement[] = [];
+  const kinds: (keyof BackfillCounts)[] = [];
+  const setDate = db.prepare(
+    `UPDATE library_entries SET created_at = ?1 WHERE user_id = ?2 AND media_id = ?3 AND created_at > ?1`,
+  );
+  for (const item of items) {
+    const link = links.get(item.key);
+    if (!link) continue;
+    if (item.addedDate) {
+      statements.push(setDate.bind(`${item.addedDate}T00:00:00.000Z`, CURRENT_USER_ID, link.mediaId));
+      kinds.push("dates");
+    }
+    if (link.type !== "tv") continue;
+    if (item.refs.length > 0) {
+      statements.push(
+        db
+          .prepare(
+            `UPDATE progress_log SET note = ? WHERE note IS NULL AND kind = 'episode'
+             AND external_ref IN (${item.refs.map(() => "?").join(", ")})`,
+          )
+          .bind(item.name, ...item.refs),
+      );
+    } else if (!item.watched) {
+      // Épisode seulement en watchlist : aucun visionnage.
+      statements.push(
+        db.prepare("DELETE FROM progress_log WHERE external_ref = ?").bind(`${item.key}#vu`),
+      );
+      kinds.push("removed");
+      continue;
+    } else {
+      // Épisode marqué vu sur Letterboxd sans date dans le journal : un visionnage à la date d'ajout.
+      statements.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO progress_log (entry_id, kind, external_ref, logged_at, note)
+             SELECT id, 'episode', ?, ?, ? FROM library_entries WHERE user_id = ? AND media_id = ?`,
+          )
+          .bind(
+            `${item.key}#vu`,
+            item.addedDate ? `${item.addedDate}T00:00:00.000Z` : new Date().toISOString(),
+            item.name,
+            CURRENT_USER_ID,
+            link.mediaId,
+          ),
+      );
+    }
+    kinds.push("episodes");
+  }
+  if (statements.length === 0) return count;
+
+  const results = await db.batch(statements);
+  results.forEach((r, i) => {
+    count[kinds[i]] += r.meta.changes ?? 0;
+  });
+  return count;
 }

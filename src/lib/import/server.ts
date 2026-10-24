@@ -14,6 +14,7 @@ import { SourceError } from "../sources/http";
 import { getMalDetails } from "../sources/mal";
 import { getTmdbDetails, searchTmdbMovieHits, tmdbPosterUrl, type TmdbMovieHit } from "../sources/tmdb";
 import { yearOf, type LibraryStatus } from "../types";
+import { letterboxdAddedDate } from "./added-date";
 import { pickMatch } from "./match";
 import { letterboxdLinkKey, type ImportItemResult, type LetterboxdFilm, type LetterboxdWatch, type MalImportItem, type MatchCandidate } from "./types";
 
@@ -68,6 +69,7 @@ export async function importMalItem(env: CloudflareEnv, item: MalImportItem): Pr
       currentChapter: item.kind === "manga" ? position : null,
       startedAt: item.startDate,
       completedAt: item.status === "completed" ? item.finishDate : null,
+      addedAt: null, // l'export MAL ne donne pas de date d'ajout
     });
     return { key: item.key, label: details.title, status: "imported" };
   } catch (error) {
@@ -160,6 +162,7 @@ export async function importLetterboxdFilm(
       currentChapter: null,
       startedAt: null,
       completedAt: film.status === "completed" ? (last?.watchedDate ?? film.addedDate) : null,
+      addedAt: letterboxdAddedDate(film),
     });
 
     const logs: ImportedLog[] = film.watches.map((watch) => ({
@@ -169,7 +172,21 @@ export async function importLetterboxdFilm(
       tags: watch.tags,
       externalRef: watch.ref,
       loggedAt: watch.watchedDate ? `${watch.watchedDate}T00:00:00.000Z` : new Date().toISOString(),
+      note: type === "tv" ? film.name : null, // nom de l'épisode
     }));
+    // Épisode marqué vu sans date dans le journal : un visionnage quand même, pour savoir lequel a été vu.
+    if (type === "tv" && logs.length === 0 && film.status === "completed") {
+      const date = letterboxdAddedDate(film);
+      logs.push({
+        kind: "episode",
+        rating: starsToTen(film.rating),
+        review: null,
+        tags: [],
+        externalRef: `${linkKey}#vu`,
+        loggedAt: date ? `${date}T00:00:00.000Z` : new Date().toISOString(),
+        note: film.name,
+      });
+    }
     await insertImportedLogs(env.DB, entryId, logs);
 
     const reused = reuse !== undefined;
