@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/K3nt1/omnilog/compare/v0.3.1...v0.4.0) (2026-10-24)
+
+
+### ✨ Nouveautés
+
+* **bibliotheque:** pages Bibliothèque et par type, grille filtrable et paginée ([#32](https://github.com/K3nt1/omnilog/issues/32)) ([9b1e138](https://github.com/K3nt1/omnilog/commit/9b1e138e6215714962f3b0dcae325e23b085b32d))
+* **fiche:** fiche média avec infos en direct, suivi modifiable, journal et œuvres liées ([#33](https://github.com/K3nt1/omnilog/issues/33)) ([90a9fcd](https://github.com/K3nt1/omnilog/commit/90a9fcdd899c0926a54a2e44c0283c66bee98604))
+
 ## [0.3.1](https://github.com/K3nt1/omnilog/compare/v0.3.0...v0.3.1) (2026-10-22)
 
 
