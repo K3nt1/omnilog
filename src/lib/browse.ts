@@ -1,6 +1,7 @@
 // Lecture de la bibliothèque : grille filtrée et paginée, compteurs, pages par type.
 // Uniquement des lectures : aucune écriture D1.
 import { CURRENT_USER_ID } from "./library";
+import { groupGenres, rawGenresFor } from "./genres";
 import { normalizeSearch } from "./search-text";
 import {
   type LibraryCard,
@@ -19,6 +20,7 @@ interface CardRow {
   entry_id: number;
   media_id: number;
   type: MediaType;
+  external_id: string | null;
   title: string;
   original_title: string | null;
   release_date: string | null;
@@ -40,7 +42,7 @@ interface CardRow {
 }
 
 const CARD_COLUMNS = `
-  l.id AS entry_id, m.id AS media_id, m.type, m.title, m.original_title, m.release_date,
+  l.id AS entry_id, m.id AS media_id, m.type, m.external_id, m.title, m.original_title, m.release_date,
   COALESCE(l.custom_poster_url, m.poster_url) AS poster_url,
   l.status, l.is_focus, l.is_favorite, l.rating,
   l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
@@ -51,6 +53,7 @@ function toCard(row: CardRow): LibraryCard {
     entryId: row.entry_id,
     mediaId: row.media_id,
     type: row.type,
+    externalId: row.external_id,
     title: row.title,
     originalTitle: row.original_title,
     releaseDate: row.release_date,
@@ -107,7 +110,7 @@ interface Where {
 }
 
 /** Conditions SQL des filtres ; `skip` retire un filtre (pour les compteurs). */
-function buildWhere(q: LibraryQuery, skip?: "type" | "status"): Where {
+function buildWhere(q: LibraryQuery, skip?: "type" | "status" | "genre"): Where {
   const clauses = ["l.user_id = ?"];
   const params: unknown[] = [CURRENT_USER_ID];
   if (q.type && skip !== "type") {
@@ -119,6 +122,13 @@ function buildWhere(q: LibraryQuery, skip?: "type" | "status"): Where {
     params.push(q.status);
   }
   if (q.favorite) clauses.push("l.is_favorite = 1");
+  if (q.genre && skip !== "genre") {
+    const raws = rawGenresFor(q.genre);
+    clauses.push(
+      `EXISTS (SELECT 1 FROM json_each(m.extra_json, '$.genres') g WHERE g.value IN (${raws.map(() => "?").join(", ")}))`,
+    );
+    params.push(...raws);
+  }
   // Trier par nombre de visionnages n'a d'intérêt que pour les œuvres revues : on n'affiche que celles-là.
   if (q.sort === "visionnages") clauses.push(`${COMPLETIONS} >= 2`);
   if (q.rating === "aucune") clauses.push("l.rating IS NULL");
@@ -144,6 +154,8 @@ export interface LibraryPage {
   statusCounts: Record<LibraryStatus, number>;
   /** Nombre d'œuvres par type, avec tous les autres filtres appliqués. */
   typeCounts: Record<MediaType, number>;
+  /** Genres présents (en français), avec tous les autres filtres appliqués. */
+  genres: { label: string; count: number }[];
 }
 
 const zeroCounts = <K extends string>(keys: readonly K[]) =>
@@ -153,7 +165,8 @@ const zeroCounts = <K extends string>(keys: readonly K[]) =>
 export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<LibraryPage> {
   const byStatus = buildWhere(q, "status");
   const byType = buildWhere(q, "type");
-  const [statusRows, typeRows] = await db.batch<{ key: string; n: number }>([
+  const byGenre = buildWhere(q, "genre");
+  const [statusRows, typeRows, genreRows] = await db.batch<{ key: string; n: number }>([
     db
       .prepare(
         `SELECT l.status AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
@@ -166,6 +179,13 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<L
          WHERE ${byType.sql} GROUP BY l.media_type`,
       )
       .bind(...byType.params),
+    db
+      .prepare(
+        `SELECT g.value AS key, COUNT(*) AS n
+         FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.genres') g
+         WHERE ${byGenre.sql} GROUP BY g.value`,
+      )
+      .bind(...byGenre.params),
   ]);
 
   const statusCounts = zeroCounts(LIBRARY_STATUSES);
@@ -192,7 +212,8 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<L
     .bind(...where.params, PAGE_SIZE, (page - 1) * PAGE_SIZE)
     .all<CardRow>();
 
-  return { cards: results.map(toCard), total, page, pageCount, statusCounts, typeCounts };
+  const genres = groupGenres(genreRows.results.map((r) => ({ genre: r.key, n: r.n })));
+  return { cards: results.map(toCard), total, page, pageCount, statusCounts, typeCounts, genres };
 }
 
 // ---------------------------------------------------------------------

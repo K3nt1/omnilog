@@ -1,6 +1,7 @@
 // MyAnimeList (API officielle v2) : animés et mangas.
 // Doc : https://myanimelist.net/apiconfig/references/api/v2
 // Lecture seule avec le Client ID (en-tête X-MAL-CLIENT-ID), sans compte utilisateur.
+import { genreLabels } from "../genres";
 import { fetchJson } from "./http";
 import { resultKey, yearOf, type MediaDetails, type SearchResult } from "../types";
 
@@ -28,13 +29,14 @@ interface MalNode {
   main_picture?: MalPicture;
   alternative_titles?: { en?: string; ja?: string };
   start_date?: string;
+  genres?: { name: string }[];
 }
 
 export async function searchMal(clientId: string, kind: "anime" | "manga", query: string): Promise<SearchResult[]> {
   const data = await mal<{ data: { node: MalNode }[] }>(clientId, `/${kind}`, {
     q: query,
     limit: "10",
-    fields: "alternative_titles,start_date",
+    fields: "alternative_titles,start_date,genres",
   });
   return data.data.map(({ node }) => {
     const externalId = String(node.id);
@@ -49,6 +51,8 @@ export async function searchMal(clientId: string, kind: "anime" | "manga", query
       year: yearOf(node.start_date),
       posterUrl: node.main_picture?.large ?? node.main_picture?.medium ?? null,
       libraryStatus: null,
+      genres: [...new Set((node.genres ?? []).flatMap((g) => genreLabels(g.name)))],
+      matchTitles: [node.title, english, node.alternative_titles?.ja].filter((t): t is string => !!t),
     };
   });
 }
@@ -93,3 +97,6 @@ export async function getMalDetails(clientId: string, kind: "anime" | "manga", i
     extra: { genres: d.genres?.map((g) => g.name) ?? [], status: d.status ?? null },
   };
 }
+
+/** Appel brut à l'API MyAnimeList (fiche média). */
+export const malGet = mal;

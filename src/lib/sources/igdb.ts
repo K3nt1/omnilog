@@ -1,5 +1,6 @@
 // IGDB : jeux vidéo. Doc : https://api-docs.igdb.com
 // Authentification via Twitch : Client ID + Secret -> jeton d'accès (~60 jours).
+import { genreLabels } from "../genres";
 import { fetchJson, SourceError } from "./http";
 import { resultKey, yearOf, type MediaDetails, type SearchResult } from "../types";
 
@@ -62,13 +63,14 @@ interface IgdbSearchGame {
   name: string;
   cover?: IgdbImage;
   first_release_date?: number;
+  genres?: { name: string }[];
 }
 
 export async function searchIgdb(env: IgdbCredentials, query: string): Promise<SearchResult[]> {
   const games = await igdb<IgdbSearchGame[]>(
     env,
     "games",
-    `search "${escapeQuery(query)}"; fields name, cover.image_id, first_release_date; where version_parent = null; limit 12;`,
+    `search "${escapeQuery(query)}"; fields name, cover.image_id, first_release_date, genres.name; where version_parent = null; limit 12;`,
   );
   return games.map((game) => {
     const externalId = String(game.id);
@@ -82,6 +84,7 @@ export async function searchIgdb(env: IgdbCredentials, query: string): Promise<S
       year: yearOf(unixToDate(game.first_release_date)),
       posterUrl: game.cover ? `${IMG}/t_cover_big/${game.cover.image_id}.jpg` : null,
       libraryStatus: null,
+      genres: [...new Set((game.genres ?? []).flatMap((g) => genreLabels(g.name)))],
     };
   });
 }
@@ -149,3 +152,8 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
     },
   };
 }
+
+/** Appel brut à l'API IGDB (fiche média). */
+export const igdbQuery = igdb;
+export const igdbImage = (imageId: string | undefined, size: string) => (imageId ? `${IMG}/${size}/${imageId}.jpg` : null);
+export type { IgdbCredentials };

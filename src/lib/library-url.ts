@@ -24,6 +24,7 @@ export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType 
     status: statusFromSlug(first(params.statut)),
     favorite: first(params.favoris) === "1",
     rating: (RATING_FILTERS as readonly string[]).includes(rating ?? "") ? (rating as RatingFilter) : null,
+    genre: first(params.genre)?.slice(0, 60) || null,
     search: (first(params.q) ?? "").slice(0, 100),
     sort,
     direction: order === "asc" || order === "desc" ? order : DEFAULT_DIRECTION[sort],
@@ -43,6 +44,7 @@ export function libraryHref(basePath: string, q: LibraryQuery, change: Partial<L
   if (next.status) params.set("statut", STATUS_SLUGS[next.status]);
   if (next.favorite) params.set("favoris", "1");
   if (next.rating) params.set("note", next.rating);
+  if (next.genre) params.set("genre", next.genre);
   if (next.search.trim()) params.set("q", next.search.trim());
   if (next.sort !== "activite") params.set("tri", next.sort);
   if (next.direction !== DEFAULT_DIRECTION[next.sort]) params.set("ordre", next.direction);

@@ -26,6 +26,8 @@ export interface LibraryQuery {
   status: LibraryStatus | null;
   favorite: boolean;
   rating: RatingFilter | null;
+  /** Genre en français (« Science-Fiction »), voir genres.ts. */
+  genre: string | null;
   search: string;
   sort: SortKey;
   direction: SortDirection;
@@ -37,6 +39,7 @@ export interface LibraryCard {
   entryId: number;
   mediaId: number;
   type: MediaType;
+  externalId: string | null;
   title: string;
   originalTitle: string | null;
   releaseDate: string | null;
