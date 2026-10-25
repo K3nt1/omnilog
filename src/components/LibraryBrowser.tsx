@@ -111,7 +111,7 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
             </>
           ) : (
             query.sort === "visionnages"
-              ? "Aucune œuvre vue au moins deux fois avec ces filtres."
+              ? "Aucune œuvre vue, lue ou jouée au moins deux fois avec ces filtres."
               : "Aucune œuvre ne correspond à ces filtres."
           )}
         </p>
