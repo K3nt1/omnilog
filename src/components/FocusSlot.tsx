@@ -28,6 +28,7 @@ export function FocusSlot({
   type: MediaType;
   card: LibraryCard | null;
   plannedCount: number;
+  /** Page d'un type : une seule carte, centrée, avec la mention « En ce moment ». */
   large?: boolean;
 }) {
   const { run, busy, error } = useAction();
@@ -36,7 +37,7 @@ export function FocusSlot({
 
   if (!card) {
     return (
-      <div className={`flex flex-col justify-between gap-3 rounded-xl border border-dashed border-white/15 p-3 ${large ? "max-w-2xl sm:flex-row sm:items-center" : ""}`}>
+      <div className={`flex flex-col justify-between gap-3 rounded-xl border border-dashed border-white/15 p-3 ${large ? "mx-auto w-full max-w-md sm:flex-row sm:items-center" : ""}`}>
         <div>
           <p className="text-xs uppercase tracking-wide text-white/40">{TYPE_SINGULAR[type]}</p>
           <p className="text-sm text-white/60">Rien en ce moment.</p>
@@ -61,8 +62,8 @@ export function FocusSlot({
   const quick = QUICK[type];
   const href = ficheHref(card.type, card.externalId);
   return (
-    <div className={`flex gap-3 rounded-xl bg-white/5 p-3 ring-1 ring-white/10 ${large ? "max-w-2xl sm:p-4" : ""}`}>
-      <Link href={href} className={`shrink-0 overflow-hidden rounded-md bg-white/5 ${large ? "h-36 w-24" : "h-24 w-16"}`}>
+    <div className={`flex gap-3 rounded-xl bg-white/5 p-3 ring-1 ring-white/10 ${large ? "mx-auto w-full max-w-md" : ""}`}>
+      <Link href={href} className={`shrink-0 overflow-hidden rounded-md bg-white/5 ${large ? "h-28 w-[4.75rem]" : "h-24 w-16"}`}>
         {card.posterUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={card.posterUrl} alt="" className="h-full w-full object-cover" />
@@ -70,9 +71,10 @@ export function FocusSlot({
       </Link>
       <div className="flex min-w-0 flex-1 flex-col">
         <p className="text-xs uppercase tracking-wide text-white/40">
-          {card.drawnAt ? "🎲 Tiré au sort" : "🎯 En ce moment"} · {TYPE_SINGULAR[type]}
+          {/* Sur la bibliothèque, le titre de la section dit déjà « En ce moment » : seul le type est rappelé. */}
+          {[large ? "🎯 En ce moment" : TYPE_SINGULAR[type], card.drawnAt ? "🎲 Tiré au sort" : null].filter(Boolean).join(" · ")}
         </p>
-        <Link href={href} className={`line-clamp-2 font-semibold leading-tight hover:underline ${large ? "text-lg" : "text-sm"}`}>
+        <Link href={href} className={`line-clamp-2 font-semibold leading-tight hover:underline ${large ? "text-base" : "text-sm"}`}>
           {card.title}
         </Link>
         <p className="mt-0.5 line-clamp-1 text-xs text-sky-300">{positionLine(card)}</p>

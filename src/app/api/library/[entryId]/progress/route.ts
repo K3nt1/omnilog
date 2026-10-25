@@ -3,6 +3,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { ProgressError, recordProgress, type ProgressAction } from "@/lib/progress";
+import { focusNextInSeries } from "@/lib/sequel";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const int = (v: unknown) => (typeof v === "number" && Number.isInteger(v) ? v : undefined);
@@ -58,12 +59,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { env } = getCloudflareContext();
   try {
-    const done = await recordProgress(env.DB, entryId, action);
-    if (!done) {
+    const result = await recordProgress(env.DB, entryId, action);
+    if (!result) {
       const message = action.kind === "undo" ? "Rien à annuler." : "Œuvre absente de ta bibliothèque.";
       return NextResponse.json({ error: message }, { status: 404 });
     }
-    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    // Film d'une saga ou saison d'animé terminé alors qu'il était le focus : le focus passe à la suite.
+    const next =
+      result.completed && result.wasFocus && result.externalId
+        ? await focusNextInSeries(env, result.type, result.externalId)
+        : null;
+    return NextResponse.json({ ok: true, next }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof ProgressError) return NextResponse.json({ error: error.message }, { status: 400 });
     throw error;

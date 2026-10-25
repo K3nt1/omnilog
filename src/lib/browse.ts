@@ -48,7 +48,7 @@ interface CardRow {
 const CARD_COLUMNS = `
   l.id AS entry_id, m.id AS media_id, m.type, m.external_id, m.title, m.original_title, m.release_date,
   COALESCE(l.custom_poster_url, m.poster_url) AS poster_url,
-  l.status, l.is_focus, l.is_favorite, l.rating,
+  l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating,
   l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
   m.total_episodes, m.total_chapters, m.runtime_minutes, m.is_ongoing,
   l.drawn_at, l.game_checkpoint, l.playtime_minutes, l.sessions_count`;
@@ -366,8 +366,9 @@ export async function getFocusOverview(db: D1Database, type: MediaType | null = 
   const [focusRows, plannedRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT ${CARD_COLUMNS} FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE l.user_id = ? AND l.is_focus = 1 ${typeFilter}`,
+        `SELECT ${CARD_COLUMNS} FROM focus fo
+         JOIN library_entries l ON l.id = fo.entry_id JOIN media m ON m.id = l.media_id
+         WHERE fo.user_id = ? ${typeFilter}`,
       )
       .bind(CURRENT_USER_ID, ...typeParams),
     db

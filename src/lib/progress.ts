@@ -5,6 +5,7 @@ import type { LibraryStatus, MediaType } from "./types";
 /** État de l'entrée que la progression modifie (et que « Annuler » remet). */
 interface EntryState {
   status: LibraryStatus;
+  /** Calculé à partir de la table focus (pas une colonne modifiable). */
   is_focus: number;
   current_season: number | null;
   current_episode: number | null;
@@ -35,9 +36,27 @@ const STATE_COLUMNS: (keyof EntryState)[] = [
   "drawn_at",
 ];
 
+/** Colonnes réellement écrites dans library_entries (le focus vit dans sa propre table). */
+const UPDATABLE = STATE_COLUMNS.filter((c) => c !== "is_focus");
+
+const FOCUS_EXPR = "EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id)";
+
+/** Met une entrée en focus de son type (remplace l'ancien focus de ce type). */
+const focusUpsert = (db: D1Database, type: MediaType, entryId: number) =>
+  db
+    .prepare(
+      `INSERT INTO focus (user_id, media_type, entry_id) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, media_type) DO UPDATE SET entry_id = excluded.entry_id,
+         since = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+    )
+    .bind(CURRENT_USER_ID, type, entryId);
+
+const focusDelete = (db: D1Database, entryId: number) => db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId);
+
 interface LoadedEntry extends EntryState {
   id: number;
   media_type: MediaType;
+  external_id: string | null;
   total_episodes: number | null;
   total_chapters: number | null;
   is_ongoing: number;
@@ -69,8 +88,8 @@ async function loadEntry(db: D1Database, entryId: number) {
   const [entryRows, seasonRows, focusRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => `l.${c}`).join(", ")},
-                m.total_episodes, m.total_chapters, m.is_ongoing
+        `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => (c === "is_focus" ? `${FOCUS_EXPR} AS is_focus` : `l.${c}`)).join(", ")},
+                m.external_id, m.total_episodes, m.total_chapters, m.is_ongoing
          FROM library_entries l JOIN media m ON m.id = l.media_id
          WHERE l.id = ? AND l.user_id = ?`,
       )
@@ -84,8 +103,8 @@ async function loadEntry(db: D1Database, entryId: number) {
       .bind(entryId),
     db
       .prepare(
-        `SELECT f.id FROM library_entries f JOIN library_entries l ON l.media_type = f.media_type AND l.user_id = f.user_id
-         WHERE l.id = ? AND f.is_focus = 1 AND f.id <> l.id`,
+        `SELECT f.entry_id FROM focus f JOIN library_entries l ON l.user_id = f.user_id AND l.media_type = f.media_type
+         WHERE l.id = ? AND f.entry_id <> l.id`,
       )
       .bind(entryId),
   ]);
@@ -116,6 +135,10 @@ interface Plan {
   logs: { kind: string; season?: number | null; episode?: number | null; chapter?: number | null; pauseSeconds?: number | null; pausePage?: number | null; minutes?: number | null; note?: string | null; at: string; rating?: number | null; review?: string | null }[];
   /** Devient le focus de son type (l'ancien focus le perd). */
   takeFocus: boolean;
+  /** Perd le focus (œuvre terminée). */
+  dropFocus?: boolean;
+  /** L'œuvre vient d'être terminée (pour passer au film suivant de la saga, à la saison suivante d'un animé…). */
+  completed?: boolean;
 }
 
 /** Ce que fait une action, à partir de l'état actuel (fonction pure, testée séparément). */
@@ -132,7 +155,6 @@ export function planAction(
   const complete = (date: string | undefined, extra: Partial<Plan["logs"][number]> = {}): Plan => ({
     set: {
       status: "completed",
-      is_focus: 0,
       completed_at: date ?? today(),
       started_at: entry.started_at,
       pause_seconds: null,
@@ -141,6 +163,8 @@ export function planAction(
     },
     logs: [{ kind: entry.media_type === "movie" ? "movie" : "complete", at: loggedAt(date), ...extra }],
     takeFocus: false,
+    dropFocus: true,
+    completed: true,
   });
 
   switch (action.kind) {
@@ -260,31 +284,38 @@ export function planAction(
 
 const SET_SQL = (keys: string[]) => keys.map((k) => `${k} = ?`).join(", ");
 
-/** Applique une action ; renvoie false si l'entrée n'existe pas. */
-export async function recordProgress(db: D1Database, entryId: number, action: ProgressAction): Promise<boolean> {
-  if (action.kind === "undo") return undoLastProgress(db, entryId);
+export interface ProgressResult {
+  /** L'œuvre vient d'être terminée. */
+  completed: boolean;
+  /** Elle était le focus de son type juste avant. */
+  wasFocus: boolean;
+  type: MediaType;
+  externalId: string | null;
+}
+
+/** Applique une action ; renvoie null si l'entrée n'existe pas. */
+export async function recordProgress(db: D1Database, entryId: number, action: ProgressAction): Promise<ProgressResult | null> {
+  if (action.kind === "undo") {
+    const undone = await undoLastProgress(db, entryId);
+    return undone ? { completed: false, wasFocus: false, type: undone, externalId: null } : null;
+  }
   const loaded = await loadEntry(db, entryId);
-  if (!loaded) return false;
+  if (!loaded) return null;
   const { entry, seasons, otherFocus } = loaded;
   const plan = planAction(entry, seasons, otherFocus, action);
 
   const set: Partial<EntryState> = { ...plan.set };
-  if (plan.takeFocus) set.is_focus = 1;
+  delete set.is_focus;
   const keys = Object.keys(set) as (keyof EntryState)[];
 
   const statements: D1PreparedStatement[] = [];
-  if (plan.takeFocus) {
-    statements.push(
-      db
-        .prepare("UPDATE library_entries SET is_focus = 0 WHERE user_id = ? AND media_type = ? AND id <> ? AND is_focus = 1")
-        .bind(CURRENT_USER_ID, entry.media_type, entryId),
-    );
-  }
   if (keys.length > 0) {
     statements.push(
       db.prepare(`UPDATE library_entries SET ${SET_SQL(keys)} WHERE id = ?`).bind(...keys.map((k) => set[k] ?? null), entryId),
     );
   }
+  if (plan.takeFocus) statements.push(focusUpsert(db, entry.media_type, entryId));
+  if (plan.dropFocus) statements.push(focusDelete(db, entryId));
   if (plan.logs.length > 0) {
     // Même « groupe » pour toutes les lignes d'une action : « Annuler » les retire ensemble.
     const snapshot = Object.fromEntries(STATE_COLUMNS.map((c) => [c, entry[c]]));
@@ -315,11 +346,11 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
     }
   }
   if (statements.length > 0) await db.batch(statements);
-  return true;
+  return { completed: plan.completed === true, wasFocus: entry.is_focus === 1, type: entry.media_type, externalId: entry.external_id };
 }
 
-/** Annule la dernière progression enregistrée dans Omnilog (pas les visionnages importés). */
-export async function undoLastProgress(db: D1Database, entryId: number): Promise<boolean> {
+/** Annule la dernière progression enregistrée dans Omnilog (pas les visionnages importés) ; renvoie le type, ou null. */
+export async function undoLastProgress(db: D1Database, entryId: number): Promise<MediaType | null> {
   const last = await db
     .prepare(
       `SELECT p.undo_json, l.media_type FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
@@ -327,23 +358,16 @@ export async function undoLastProgress(db: D1Database, entryId: number): Promise
     )
     .bind(entryId, CURRENT_USER_ID)
     .first<{ undo_json: string; media_type: MediaType }>();
-  if (!last) return false;
+  if (!last) return null;
   const { group, state } = JSON.parse(last.undo_json) as { group: string; state: EntryState };
-  const keys = STATE_COLUMNS.filter((c) => c in state);
-  const statements: D1PreparedStatement[] = [];
-  if (state.is_focus === 1) {
-    statements.push(
-      db
-        .prepare("UPDATE library_entries SET is_focus = 0 WHERE user_id = ? AND media_type = ? AND id <> ? AND is_focus = 1")
-        .bind(CURRENT_USER_ID, last.media_type, entryId),
-    );
-  }
-  statements.push(
+  const keys = UPDATABLE.filter((c) => c in state);
+  await db.batch([
     db.prepare(`UPDATE library_entries SET ${SET_SQL(keys)} WHERE id = ?`).bind(...keys.map((k) => state[k] ?? null), entryId),
+    // Le focus revient comme avant (y compris s'il était passé au film suivant de la saga).
+    state.is_focus === 1 ? focusUpsert(db, last.media_type, entryId) : focusDelete(db, entryId),
     db.prepare("DELETE FROM progress_log WHERE entry_id = ? AND json_extract(undo_json, '$.group') = ?").bind(entryId, group),
-  );
-  await db.batch(statements);
-  return true;
+  ]);
+  return last.media_type;
 }
 
 /** Y a-t-il une progression à annuler ? (pour afficher le bouton) */
@@ -355,34 +379,24 @@ export async function hasUndo(db: D1Database, entryId: number): Promise<boolean>
   return !!row;
 }
 
-/** Met (ou retire) une œuvre en focus. Elle passe « en cours » ; l'ancien focus du type le perd mais reste « en cours ». */
+/** Met (ou retire) une œuvre en focus, sans toucher à son statut. L'ancien focus du type le perd. */
 export async function setFocus(db: D1Database, entryId: number, focus: boolean): Promise<boolean> {
   const entry = await db
     .prepare("SELECT media_type FROM library_entries WHERE id = ? AND user_id = ?")
     .bind(entryId, CURRENT_USER_ID)
     .first<{ media_type: MediaType }>();
   if (!entry) return false;
-  if (!focus) {
-    await db.prepare("UPDATE library_entries SET is_focus = 0, drawn_at = NULL WHERE id = ?").bind(entryId).run();
-    return true;
-  }
-  await db.batch([
-    db
-      .prepare("UPDATE library_entries SET is_focus = 0 WHERE user_id = ? AND media_type = ? AND id <> ? AND is_focus = 1")
-      .bind(CURRENT_USER_ID, entry.media_type, entryId),
-    db
-      .prepare(
-        `UPDATE library_entries SET status = 'in_progress', is_focus = 1, started_at = COALESCE(started_at, date('now'))
-         WHERE id = ?`,
-      )
-      .bind(entryId),
-  ]);
+  await db.batch(
+    focus
+      ? [focusUpsert(db, entry.media_type, entryId)]
+      : [focusDelete(db, entryId), db.prepare("UPDATE library_entries SET drawn_at = NULL WHERE id = ?").bind(entryId)],
+  );
   return true;
 }
 
 /**
- * Tirage au sort dans la watchlist / le backlog d'un type : l'œuvre tirée devient le focus.
- * Une œuvre tirée précédemment et pas encore commencée retourne dans la watchlist / le backlog (« Relancer »).
+ * Tirage au sort dans la watchlist / le backlog d'un type : l'œuvre tirée devient le focus (son statut ne change pas).
+ * Relancer : l'œuvre tirée précédemment perd sa marque « tirée au sort » et le focus passe à la nouvelle.
  * Renvoie l'entrée tirée, ou null si la watchlist / le backlog est vide.
  */
 export async function drawRandom(db: D1Database, type: MediaType): Promise<number | null> {
@@ -392,7 +406,7 @@ export async function drawRandom(db: D1Database, type: MediaType): Promise<numbe
       .bind(CURRENT_USER_ID, type),
     db
       .prepare(
-        `SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND status = 'planned'
+        `SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND status = 'planned' AND drawn_at IS NULL
          ORDER BY random() LIMIT 1`,
       )
       .bind(CURRENT_USER_ID, type),
@@ -404,27 +418,15 @@ export async function drawRandom(db: D1Database, type: MediaType): Promise<numbe
 
   const statements: D1PreparedStatement[] = [];
   if (previous.length > 0) {
-    // Tirage précédent jamais commencé : retour dans la watchlist / le backlog.
     statements.push(
       db
-        .prepare(
-          `UPDATE library_entries SET status = 'planned', is_focus = 0, drawn_at = NULL
-           WHERE id IN (${previous.map(() => "?").join(", ")})`,
-        )
+        .prepare(`UPDATE library_entries SET drawn_at = NULL WHERE id IN (${previous.map(() => "?").join(", ")})`)
         .bind(...previous),
     );
   }
   statements.push(
-    db
-      .prepare("UPDATE library_entries SET is_focus = 0 WHERE user_id = ? AND media_type = ? AND id <> ? AND is_focus = 1")
-      .bind(CURRENT_USER_ID, type, picked),
-    db
-      .prepare(
-        `UPDATE library_entries SET status = 'in_progress', is_focus = 1,
-                drawn_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE id = ?`,
-      )
-      .bind(picked),
+    db.prepare("UPDATE library_entries SET drawn_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(picked),
+    focusUpsert(db, type, picked),
   );
   await db.batch(statements);
   return picked;
