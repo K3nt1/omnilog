@@ -30,6 +30,21 @@ function parseAction(body: Record<string, unknown>): ProgressAction | null {
         minutes: int(body.minutes),
         note: typeof body.note === "string" ? body.note.slice(0, 500) : undefined,
       };
+    case "markEpisode": {
+      const season = int(body.season);
+      const episode = int(body.episode);
+      const rating = body.rating === null ? null : int(body.rating);
+      if (season === undefined || episode === undefined) return null;
+      if (rating !== undefined && rating !== null && (rating < 1 || rating > 10)) return null;
+      return {
+        kind: "markEpisode",
+        season,
+        episode,
+        date: date(body.date),
+        rating,
+        review: typeof body.review === "string" ? body.review.slice(0, 20000) : undefined,
+      };
+    }
     case "complete": {
       const rating = body.rating === null ? null : int(body.rating);
       if (rating !== undefined && rating !== null && (rating < 1 || rating > 10)) return null;

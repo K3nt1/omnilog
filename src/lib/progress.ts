@@ -76,6 +76,8 @@ export type ProgressAction =
   | { kind: "session"; date?: string; minutes?: number; note?: string }
   /** Œuvre terminée (film vu, série / animé / manga / jeu fini). */
   | { kind: "complete"; date?: string; rating?: number | null; review?: string | null }
+  /** Épisode précis coché dans la liste des saisons (série), avec note et critique facultatives. */
+  | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
   | { kind: "undo" };
 
 export class ProgressError extends Error {}
@@ -279,6 +281,43 @@ export function planAction(
 
     case "complete":
       return complete(action.date, { rating: action.rating ?? null, review: action.review?.trim() || null });
+
+    case "markEpisode": {
+      if (entry.media_type !== "tv") throw new ProgressError("Seuls les épisodes de séries se cochent un par un.");
+      if (action.season < 0 || action.episode < 1) throw new ProgressError("Épisode invalide.");
+      const log = {
+        kind: "episode",
+        season: action.season,
+        episode: action.episode,
+        at: loggedAt(action.date),
+        rating: action.rating ?? null,
+        review: action.review?.trim() || null,
+      };
+      const season = entry.current_season ?? 1;
+      const episode = entry.current_episode ?? 1;
+      // Épisode à la position actuelle ou après : on avance juste après lui. Épisode plus ancien (ou spécial) :
+      // simple visionnage au journal, la position ne bouge pas.
+      const atOrAfter = action.season > 0 && (action.season > season || (action.season === season && action.episode >= episode));
+      if (!atOrAfter) {
+        const status = entry.status === "planned" ? progressing : {};
+        return { set: status, logs: [log], takeFocus: entry.status === "planned" && autoFocus };
+      }
+      const next = nextTvEpisode(seasons, action.season, action.episode);
+      if (!next && !entry.is_ongoing) {
+        const done = complete(action.date);
+        return {
+          ...done,
+          set: { ...done.set, current_season: action.season, current_episode: action.episode },
+          logs: [log, ...done.logs],
+        };
+      }
+      const after = next ?? { season: action.season, episode: action.episode + 1 };
+      return {
+        set: { ...progressing, current_season: after.season, current_episode: after.episode, pause_seconds: null },
+        logs: [log],
+        takeFocus: autoFocus,
+      };
+    }
   }
 }
 

@@ -4,19 +4,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToLibrary } from "@/components/fiche/AddToLibrary";
 import { ProgressPanel } from "@/components/fiche/ProgressPanel";
+import { Journal } from "@/components/fiche/Journal";
 import { PublisherField } from "@/components/fiche/PublisherField";
 import { SeasonList } from "@/components/fiche/SeasonList";
-import { RichText } from "@/components/RichText";
 import { TrackingPanel } from "@/components/fiche/TrackingPanel";
-import { getLibraryStatuses, getStoredFiche, type JournalLine, type StoredMedia } from "@/lib/entry";
+import { getLibraryStatuses, getStoredFiche, type StoredMedia } from "@/lib/entry";
 import { getFiche, type MediaFiche } from "@/lib/fiche";
 import type { RelatedWork } from "@/lib/fiche/types";
 import {
   dateLabel,
   durationLabel,
-  episodeName,
   ficheHref,
-  starsLabel,
   statusLabel,
   TYPE_LABELS,
   TYPE_SINGULAR,
@@ -115,21 +113,6 @@ function durationLine(f: MediaFiche): string | null {
   if (f.type === "game" && f.timeToBeat?.normally) parts.push(`≈ ${durationLabel(f.timeToBeat.normally)} pour le finir`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-function journalWhat(line: JournalLine, f: MediaFiche): string | null {
-  if (line.kind === "episode") {
-    const number = line.episode !== null ? (line.season !== null ? `S${pad(line.season)}E${pad(line.episode)}` : `Ép. ${line.episode}`) : null;
-    const name = line.note ? episodeName(line.note, [f.title, f.originalTitle]) : null;
-    return [number, name].filter(Boolean).join(" · ") || null;
-  }
-  if (line.kind === "chapter" && line.chapter !== null) return `Ch. ${line.chapter.toLocaleString("fr-FR")}`;
-  if (line.kind === "session") return line.minutes ? durationLabel(line.minutes) : null;
-  return null;
-}
-
-const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué" };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -418,41 +401,11 @@ export default async function FichePage({ params }: Props) {
 
         {f.seasons.length > 0 && (
           <Section title="Saisons et épisodes">
-            <SeasonList tmdbId={id} seasons={f.seasons} />
+            <SeasonList tmdbId={id} seasons={f.seasons} entryId={entry?.id ?? null} />
           </Section>
         )}
 
-        {stored.journal.length > 0 && (
-          <Section title={`Mon journal (${stored.journal.length})`}>
-            <ul className="divide-y divide-white/10 rounded-xl bg-white/5 ring-1 ring-white/10">
-              {stored.journal.map((line) => {
-                const what = journalWhat(line, f);
-                return (
-                  <li key={line.id} className="space-y-1 px-4 py-3 text-sm">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="font-medium">
-                        {line.kind === "session" ? "Session du" : line.kind === "complete" ? "Terminé le" : `${VERB[type]} le`} {dateLabel(line.at)}
-                      </span>
-                      {what && <span className="text-sky-300">{what}</span>}
-                      {line.rating !== null && <span className="text-amber-300">★ {starsLabel(line.rating)}</span>}
-                    </div>
-                    {line.kind === "session" && line.note && <p className="text-white/70">Où j&apos;en suis : {line.note}</p>}
-                    {line.review && <RichText text={line.review} className="text-white/80" />}
-                    {line.tags.length > 0 && (
-                      <ul className="flex flex-wrap gap-1.5">
-                        {line.tags.map((t) => (
-                          <li key={t} className="rounded bg-white/10 px-1.5 py-0.5 text-xs text-white/70">
-                            #{t}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </Section>
-        )}
+        <Journal lines={stored.journal} type={type} entryId={entry?.id ?? null} titles={[f.title, f.originalTitle]} />
 
         {f.related.map((group) => (
           <Section key={group.title} title={group.title}>

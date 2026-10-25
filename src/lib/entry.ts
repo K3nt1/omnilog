@@ -295,6 +295,7 @@ export async function setPublisherFr(db: D1Database, mediaId: number, publisher:
 }
 
 export interface EpisodeLog {
+  id: number;
   season: number | null;
   episode: number | null;
   note: string | null;
@@ -312,7 +313,7 @@ export async function getEpisodeLogs(
     db.prepare("SELECT title, original_title FROM media WHERE type = 'tv' AND source = 'tmdb' AND external_id = ?").bind(externalId),
     db
       .prepare(
-        `SELECT p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review
+        `SELECT p.id, p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review
          FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
          WHERE l.user_id = ? AND m.type = 'tv' AND m.source = 'tmdb' AND m.external_id = ? AND p.kind = 'episode'
          ORDER BY p.logged_at DESC`,

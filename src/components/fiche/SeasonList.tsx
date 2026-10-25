@@ -2,16 +2,121 @@
 
 import { useState } from "react";
 import type { SeasonEpisodeResponse } from "@/lib/fiche/types";
-import { dateLabel, durationLabel, starsLabel } from "@/lib/labels";
+import { dateLabel, durationLabel } from "@/lib/labels";
 import type { SeasonInfo } from "@/lib/types";
-import { RichText } from "../RichText";
+import { htmlToPlain, RichText } from "../RichText";
+import { useAction } from "../useAction";
+import { StarRating } from "./StarRating";
 
 type Loaded = { status: "loading" } | { status: "error"; message: string } | { status: "done"; episodes: SeasonEpisodeResponse[] };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
 
-function Episode({ season, e }: { season: number; e: SeasonEpisodeResponse }) {
+/** Actions sur un épisode : cocher (avec note / critique), noter, écrire la critique, retirer. */
+function EpisodeActions({
+  entryId,
+  season,
+  e,
+  onChange,
+}: {
+  entryId: number;
+  season: number;
+  e: SeasonEpisodeResponse;
+  onChange: () => void;
+}) {
+  const { run, busy, error } = useAction();
+  const [open, setOpen] = useState(false);
+  const [rating, setRating] = useState<number | null>(e.watched?.rating ?? null);
+  const [review, setReview] = useState(e.watched?.review ? htmlToPlain(e.watched.review) : "");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const done = async (ok: boolean) => {
+    if (ok) {
+      setOpen(false);
+      onChange();
+    }
+  };
+  const mark = (withDetails: boolean) =>
+    run("mark", `/api/library/${entryId}/progress`, {
+      kind: "markEpisode",
+      season,
+      episode: e.number,
+      date,
+      ...(withDetails ? { rating, review: review.trim() || null } : {}),
+    }).then(done);
+  const save = (patch: Record<string, unknown>) => run("save", `/api/journal/${e.watched!.logId}`, patch, "PATCH").then(done);
+  const button = "rounded-md px-2 py-1 text-xs disabled:opacity-50";
+
+  return (
+    <div className="space-y-1.5 text-right text-xs">
+      {e.watched ? (
+        <>
+          <p className="text-emerald-300">✓ Vu le {dateLabel(e.watched.at)}</p>
+          {e.watched.count > 1 && <p className="text-white/50">{e.watched.count} visionnages</p>}
+          <div className="flex justify-end">
+            <StarRating small value={e.watched.rating} onChange={(r) => save({ rating: r })} disabled={busy !== null} />
+          </div>
+          <div className="flex justify-end gap-1">
+            <button type="button" onClick={() => setOpen((v) => !v)} className={`${button} bg-white/10 hover:bg-white/20`}>
+              {e.watched.review ? "Modifier la critique" : "Critique"}
+            </button>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => run("unmark", `/api/journal/${e.watched!.logId}`, null, "DELETE").then(done)}
+              className={`${button} text-white/50 hover:text-rose-300`}
+            >
+              Retirer
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="flex justify-end gap-1">
+          <button type="button" disabled={busy !== null} onClick={() => mark(false)} className={`${button} bg-white font-medium text-black hover:bg-white/90`}>
+            {busy === "mark" ? "…" : "✓ Vu"}
+          </button>
+          <button type="button" onClick={() => setOpen((v) => !v)} className={`${button} bg-white/10 hover:bg-white/20`}>
+            + note, critique
+          </button>
+        </div>
+      )}
+      {open && (
+        <div className="space-y-2 rounded-md bg-black/30 p-2 text-left">
+          {!e.watched && (
+            <div className="flex flex-wrap items-center gap-2">
+              <StarRating small value={rating} onChange={setRating} />
+              <input
+                type="date"
+                value={date}
+                onChange={(ev) => setDate(ev.target.value || date)}
+                className="rounded border border-white/15 bg-white/5 px-2 py-0.5"
+                aria-label="Date du visionnage"
+              />
+            </div>
+          )}
+          <textarea
+            value={review}
+            onChange={(ev) => setReview(ev.target.value)}
+            rows={3}
+            placeholder="Ta critique de l'épisode…"
+            className="block w-full rounded border border-white/15 bg-white/5 px-2 py-1 text-sm outline-none focus:border-white/40"
+          />
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => (e.watched ? save({ review: review.trim() || null }) : mark(true))}
+            className={`${button} bg-white font-medium text-black hover:bg-white/90`}
+          >
+            {e.watched ? "Enregistrer" : "✓ Vu, avec note et critique"}
+          </button>
+        </div>
+      )}
+      {error && <p className="text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
+function Episode({ season, e, entryId, onChange }: { season: number; e: SeasonEpisodeResponse; entryId: number | null; onChange: () => void }) {
   return (
     <li className="flex flex-col gap-3 py-3 sm:flex-row">
       <div className="aspect-video w-full shrink-0 overflow-hidden rounded-md bg-white/5 sm:w-44">
@@ -30,23 +135,19 @@ function Episode({ season, e }: { season: number; e: SeasonEpisodeResponse }) {
         {e.overview && <p className="mt-1 line-clamp-3 text-white/70">{e.overview}</p>}
         {e.watched?.review && <RichText text={e.watched.review} className="mt-2 border-l-2 border-sky-400/40 pl-3 text-white/80" />}
       </div>
-      <div className="shrink-0 text-right text-xs sm:w-32">
-        {e.watched ? (
-          <>
-            <p className="text-emerald-300">✓ Vu le {dateLabel(e.watched.at)}</p>
-            {e.watched.count > 1 && <p className="text-white/50">{e.watched.count} visionnages</p>}
-            {e.watched.rating !== null && <p className="text-amber-300">★ {starsLabel(e.watched.rating)}</p>}
-          </>
-        ) : (
-          <p className="text-white/40">Pas vu</p>
-        )}
+      <div className="shrink-0 sm:w-44">
+        {entryId !== null ? (
+          <EpisodeActions entryId={entryId} season={season} e={e} onChange={onChange} />
+        ) : e.watched ? (
+          <p className="text-right text-xs text-emerald-300">✓ Vu le {dateLabel(e.watched.at)}</p>
+        ) : null}
       </div>
     </li>
   );
 }
 
 /** Saisons d'une série : chacune se déroule pour afficher ses épisodes (chargés à la demande). */
-export function SeasonList({ tmdbId, seasons }: { tmdbId: string; seasons: SeasonInfo[] }) {
+export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seasons: SeasonInfo[]; entryId: number | null }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState<Record<number, Loaded>>({});
 
@@ -61,6 +162,11 @@ export function SeasonList({ tmdbId, seasons }: { tmdbId: string; seasons: Seaso
     setOpen(next);
     if (loaded[season]?.status === "done" || loaded[season]?.status === "loading") return;
     setLoaded((l) => ({ ...l, [season]: { status: "loading" } }));
+    await load(season);
+  }
+
+  /** (Re)charge les épisodes d'une saison et tes visionnages. */
+  async function load(season: number) {
     try {
       const res = await fetch(`/api/fiche/tv/${tmdbId}/saison/${season}`);
       const json = (await res.json()) as { episodes?: SeasonEpisodeResponse[]; error?: string };
@@ -111,7 +217,7 @@ export function SeasonList({ tmdbId, seasons }: { tmdbId: string; seasons: Seaso
                   ) : (
                     <ul className="divide-y divide-white/10">
                       {state.episodes.map((e) => (
-                        <Episode key={e.number} season={s.seasonNumber} e={e} />
+                        <Episode key={`${e.number}-${e.watched?.logId ?? "non-vu"}`} season={s.seasonNumber} e={e} entryId={entryId} onChange={() => load(s.seasonNumber)} />
                       ))}
                     </ul>
                   ))}
