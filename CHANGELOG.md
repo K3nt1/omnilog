@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/K3nt1/omnilog/compare/v0.4.0...v0.5.0) (2026-10-25)
+
+
+### ✨ Nouveautés
+
+* **suivi:** épisodes cochables, journal modifiable et actions rapides sur les vignettes ([#39](https://github.com/K3nt1/omnilog/issues/39)) ([b36b7cb](https://github.com/K3nt1/omnilog/commit/b36b7cbb59949975a66645e0ef2eeeace7d4f281))
+* **suivi:** focus, tirage au sort, progression par type et annulation ([#38](https://github.com/K3nt1/omnilog/issues/38)) ([9aa04f0](https://github.com/K3nt1/omnilog/commit/9aa04f07b6d9cdcc75cad3d4491a15a2442fb73b))
+
 ## [0.4.0](https://github.com/K3nt1/omnilog/compare/v0.3.1...v0.4.0) (2026-10-24)
 
 
