@@ -59,6 +59,8 @@ export interface JournalLine {
   review: string | null;
   tags: string[];
   note: string | null;
+  /** Ajouté sans date de visionnage (at = jour de l'ajout). */
+  undated: boolean;
 }
 
 export interface StoredFiche {
@@ -120,6 +122,7 @@ interface JournalRow {
   review: string | null;
   tags_json: string | null;
   note: string | null;
+  undated: number;
 }
 
 const parseJson = <T,>(value: string | null, fallback: T): T => {
@@ -149,7 +152,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     db
       .prepare(
         `SELECT p.id, p.kind, p.logged_at, p.season, p.episode, p.chapter, p.duration_minutes, p.rating, p.review,
-                p.tags_json, p.note
+                p.tags_json, p.note, p.undated
          FROM progress_log p
          JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
          WHERE l.user_id = ? AND m.type = ? AND m.source = ? AND m.external_id = ? AND p.kind <> 'pause'
@@ -218,6 +221,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     review: r.review,
     tags: parseJson<string[]>(r.tags_json, []),
     note: r.note,
+    undated: r.undated === 1,
   }));
 
   const region = (userRows.results[0] as { watch_region?: string } | undefined)?.watch_region ?? "FR";

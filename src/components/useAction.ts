@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+/** Événement envoyé après chaque action réussie. */
+export const PROGRESS_EVENT = "omnilog:action";
+
 /** Envoie une action (JSON) puis recharge la page côté serveur ; garde l'état « en cours » et l'erreur. */
 export function useAction() {
   const router = useRouter();
@@ -21,6 +24,8 @@ export function useAction() {
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Action impossible.");
+      // Prévient les composants qui gardent leurs propres données (liste des épisodes d'une saison…).
+      window.dispatchEvent(new Event(PROGRESS_EVENT));
       startTransition(() => router.refresh());
       return true;
     } catch (e) {

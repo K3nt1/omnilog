@@ -7,8 +7,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function parseJournalPatch(body: Record<string, unknown>): JournalPatch | string {
   const patch: JournalPatch = {};
   if ("date" in body) {
-    if (typeof body.date !== "string" || !DATE.test(body.date)) return "Date invalide.";
-    patch.date = body.date;
+    // null ou "" : sans date (comme sur Letterboxd).
+    if (body.date === null || body.date === "") patch.date = null;
+    else if (typeof body.date !== "string" || !DATE.test(body.date)) return "Date invalide.";
+    else patch.date = body.date;
   }
   if ("rating" in body) {
     const r = body.rating;

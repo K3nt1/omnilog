@@ -4,6 +4,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { addJournalLine } from "@/lib/journal";
 import { parseJournalPatch } from "@/lib/journal-input";
+import { focusNextInSeries } from "@/lib/sequel";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ entryId: string }> }) {
   const entryId = Number((await params).entryId);
@@ -19,5 +20,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { env } = getCloudflareContext();
   const added = await addJournalLine(env.DB, entryId, patch);
   if (!added) return NextResponse.json({ error: "Œuvre absente de ta bibliothèque." }, { status: 404 });
-  return NextResponse.json({ ok: true }, { status: 201, headers: { "Cache-Control": "no-store" } });
+  // Film d'une saga (ou saison d'animé) en focus qu'on vient de voir : le focus passe à la suite.
+  const next =
+    added.completed && added.wasFocus && added.externalId ? await focusNextInSeries(env, added.type, added.externalId) : null;
+  return NextResponse.json({ ok: true, next }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }

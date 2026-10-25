@@ -54,6 +54,7 @@ function activityWhen(item: ActivityItem, type: MediaType): string {
   const when = dateLabel(item.at);
   if (item.kind === "done") return `${statusLabel("completed", type)} le ${when}`;
   if (item.logKind === "session") return `Le ${when}`;
+  if (item.undated) return `${item.logKind === "complete" ? "Terminé" : VERB[type]} · ajouté le ${when}`;
   if (item.logKind === "complete") return `Terminé le ${when}`;
   return `${VERB[type]} le ${when}`;
 }

@@ -35,7 +35,8 @@ function LineForm({
   initial: { date: string; rating: number | null; review: string; tags: string[] };
   submitLabel: string;
   busy: boolean;
-  onSubmit: (v: { date: string; rating: number | null; review: string | null; tags: string[] }) => void;
+  /** date = null : sans date (le visionnage est daté du jour de l'ajout, comme sur Letterboxd). */
+  onSubmit: (v: { date: string | null; rating: number | null; review: string | null; tags: string[] }) => void;
   onCancel: () => void;
 }) {
   const [date, setDate] = useState(initial.date);
@@ -45,7 +46,14 @@ function LineForm({
   return (
     <div className="space-y-2 rounded-lg bg-black/30 p-3">
       <div className="flex flex-wrap items-center gap-3">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value || date)} className={field} aria-label="Date" />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={field} aria-label="Date du visionnage" />
+        {date ? (
+          <button type="button" onClick={() => setDate("")} className="text-xs text-white/50 hover:text-white">
+            Sans date
+          </button>
+        ) : (
+          <span className="text-xs text-white/50">Sans date : enregistré à la date d&apos;aujourd&apos;hui</span>
+        )}
         <StarRating value={rating} onChange={setRating} />
       </div>
       <textarea
@@ -62,7 +70,7 @@ function LineForm({
           disabled={busy}
           onClick={() =>
             onSubmit({
-              date,
+              date: date || null,
               rating,
               review: review.trim() || null,
               tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
@@ -129,7 +137,9 @@ export function Journal({
               <li key={line.id} className="space-y-1 px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="font-medium">
-                    {line.kind === "session" ? "Session du" : line.kind === "complete" ? "Terminé le" : `${VERB[type]} le`} {dateLabel(line.at)}
+                    {line.undated
+                      ? `${line.kind === "complete" ? "Terminé" : VERB[type]} · ajouté le ${dateLabel(line.at)}`
+                      : `${line.kind === "session" ? "Session du" : line.kind === "complete" ? "Terminé le" : `${VERB[type]} le`} ${dateLabel(line.at)}`}
                   </span>
                   {detail && <span className="text-sky-300">{detail}</span>}
                   {line.rating !== null && <span className="text-amber-300">★ {starsLabel(line.rating)}</span>}
@@ -153,7 +163,7 @@ export function Journal({
                 </div>
                 {editing === line.id ? (
                   <LineForm
-                    initial={{ date: line.at.slice(0, 10), rating: line.rating, review: line.review ? htmlToPlain(line.review) : "", tags: line.tags }}
+                    initial={{ date: line.undated ? "" : line.at.slice(0, 10), rating: line.rating, review: line.review ? htmlToPlain(line.review) : "", tags: line.tags }}
                     submitLabel="Enregistrer"
                     busy={busy === `edit-${line.id}`}
                     onSubmit={async (v) => {

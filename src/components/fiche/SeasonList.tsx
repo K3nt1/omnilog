@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SeasonEpisodeResponse } from "@/lib/fiche/types";
 import { dateLabel, durationLabel } from "@/lib/labels";
 import type { SeasonInfo } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
-import { useAction } from "../useAction";
+import { PROGRESS_EVENT, useAction } from "../useAction";
 import { StarRating } from "./StarRating";
 
 type Loaded = { status: "loading" } | { status: "error"; message: string } | { status: "done"; episodes: SeasonEpisodeResponse[] };
@@ -151,30 +151,44 @@ export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seaso
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState<Record<number, Loaded>>({});
 
+  // Saisons ouvertes, à recharger quand une action est faite ailleurs sur la page (épisode vu dans le bandeau…).
+  const openRef = useRef<Set<number>>(new Set());
+
+  /** (Re)charge les épisodes d'une saison et tes visionnages. */
+  const load = useCallback(
+    async (season: number) => {
+      try {
+        const res = await fetch(`/api/fiche/tv/${tmdbId}/saison/${season}`);
+        const json = (await res.json()) as { episodes?: SeasonEpisodeResponse[]; error?: string };
+        if (!res.ok || !json.episodes) throw new Error(json.error ?? "Saison indisponible.");
+        setLoaded((l) => ({ ...l, [season]: { status: "done", episodes: json.episodes! } }));
+      } catch (e) {
+        setLoaded((l) => ({ ...l, [season]: { status: "error", message: e instanceof Error ? e.message : "Saison indisponible." } }));
+      }
+    },
+    [tmdbId],
+  );
+
+  useEffect(() => {
+    const reload = () => openRef.current.forEach((season) => void load(season));
+    window.addEventListener(PROGRESS_EVENT, reload);
+    return () => window.removeEventListener(PROGRESS_EVENT, reload);
+  }, [load]);
+
   async function toggle(season: number) {
     const next = new Set(open);
     if (next.has(season)) {
       next.delete(season);
       setOpen(next);
+      openRef.current = next;
       return;
     }
     next.add(season);
     setOpen(next);
+    openRef.current = next;
     if (loaded[season]?.status === "done" || loaded[season]?.status === "loading") return;
     setLoaded((l) => ({ ...l, [season]: { status: "loading" } }));
     await load(season);
-  }
-
-  /** (Re)charge les épisodes d'une saison et tes visionnages. */
-  async function load(season: number) {
-    try {
-      const res = await fetch(`/api/fiche/tv/${tmdbId}/saison/${season}`);
-      const json = (await res.json()) as { episodes?: SeasonEpisodeResponse[]; error?: string };
-      if (!res.ok || !json.episodes) throw new Error(json.error ?? "Saison indisponible.");
-      setLoaded((l) => ({ ...l, [season]: { status: "done", episodes: json.episodes! } }));
-    } catch (e) {
-      setLoaded((l) => ({ ...l, [season]: { status: "error", message: e instanceof Error ? e.message : "Saison indisponible." } }));
-    }
   }
 
   // Saisons dans l'ordre, épisodes spéciaux (saison 0) à la fin.
@@ -217,7 +231,7 @@ export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seaso
                   ) : (
                     <ul className="divide-y divide-white/10">
                       {state.episodes.map((e) => (
-                        <Episode key={`${e.number}-${e.watched?.logId ?? "non-vu"}`} season={s.seasonNumber} e={e} entryId={entryId} onChange={() => load(s.seasonNumber)} />
+                        <Episode key={`${e.number}-${e.watched?.logId ?? "non-vu"}`} season={s.seasonNumber} e={e} entryId={entryId} onChange={() => undefined} />
                       ))}
                     </ul>
                   ))}

@@ -242,6 +242,8 @@ export interface ActivityItem {
   note: string | null;
   /** Durée d'une session de jeu, en minutes. */
   minutes: number | null;
+  /** Ajouté sans date de visionnage. */
+  undated: boolean;
   card: LibraryCard;
 }
 
@@ -289,12 +291,12 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
       .prepare(
         `SELECT * FROM (
            SELECT 'log' AS item_kind, p.logged_at AS at, p.kind AS log_kind, p.season, p.episode, p.chapter,
-                  p.rating AS log_rating, p.note AS log_note, p.duration_minutes AS log_minutes, ${CARD_COLUMNS}
+                  p.rating AS log_rating, p.note AS log_note, p.duration_minutes AS log_minutes, p.undated AS log_undated, ${CARD_COLUMNS}
            FROM progress_log p
            JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ?1 AND l.media_type = ?2 AND p.kind <> 'pause'
            UNION ALL
-           SELECT 'done', l.completed_at, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ${CARD_COLUMNS}
+           SELECT 'done', l.completed_at, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, ${CARD_COLUMNS}
            FROM library_entries l JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ?1 AND l.media_type = ?2 AND l.completed_at IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id)
@@ -326,6 +328,7 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
     log_rating: number | null;
     log_note: string | null;
     log_minutes: number | null;
+    log_undated: number;
   };
 
   return {
@@ -343,6 +346,7 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
       logRating: row.log_rating,
       note: row.log_note,
       minutes: row.log_minutes,
+      undated: row.log_undated === 1,
       card: toCard(row),
     })),
   };
