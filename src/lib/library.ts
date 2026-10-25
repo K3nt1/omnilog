@@ -283,7 +283,6 @@ export async function upsertImportedEntry(
          created_at = MIN(created_at, excluded.created_at),
          -- Jamais de retour en arrière : une œuvre terminée ne redevient pas « à voir ».
          status = CASE WHEN status = 'completed' AND excluded.status = 'planned' THEN status ELSE excluded.status END,
-         is_focus = CASE WHEN excluded.status = 'in_progress' AND status = 'in_progress' THEN is_focus ELSE 0 END,
          rating = COALESCE(excluded.rating, rating),
          review = COALESCE(excluded.review, review),
          is_favorite = MAX(is_favorite, excluded.is_favorite),

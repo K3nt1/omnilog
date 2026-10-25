@@ -38,15 +38,20 @@ interface CardRow {
   total_chapters: number | null;
   runtime_minutes: number | null;
   is_ongoing: number;
+  drawn_at: string | null;
+  game_checkpoint: string | null;
+  playtime_minutes: number | null;
+  sessions_count: number;
   sort_value?: string | number | null;
 }
 
 const CARD_COLUMNS = `
   l.id AS entry_id, m.id AS media_id, m.type, m.external_id, m.title, m.original_title, m.release_date,
   COALESCE(l.custom_poster_url, m.poster_url) AS poster_url,
-  l.status, l.is_focus, l.is_favorite, l.rating,
+  l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating,
   l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
-  m.total_episodes, m.total_chapters, m.runtime_minutes, m.is_ongoing`;
+  m.total_episodes, m.total_chapters, m.runtime_minutes, m.is_ongoing,
+  l.drawn_at, l.game_checkpoint, l.playtime_minutes, l.sessions_count`;
 
 function toCard(row: CardRow): LibraryCard {
   return {
@@ -72,6 +77,10 @@ function toCard(row: CardRow): LibraryCard {
     runtimeMinutes: row.runtime_minutes,
     isOngoing: row.is_ongoing === 1,
     sortValue: row.sort_value ?? null,
+    drawnAt: row.drawn_at,
+    gameCheckpoint: row.game_checkpoint,
+    playtimeMinutes: row.playtime_minutes,
+    sessionsCount: row.sessions_count,
   };
 }
 
@@ -83,8 +92,8 @@ const LAST_ACTIVITY = `COALESCE(
   (SELECT MAX(p.logged_at) FROM progress_log p WHERE p.entry_id = l.id),
   l.completed_at, l.started_at, l.created_at)`;
 
-/** Nombre de visionnages complets (films pour l'instant ; relectures et parties viendront avec la v0.5). */
-const COMPLETIONS = `(SELECT COUNT(*) FROM progress_log p WHERE p.entry_id = l.id AND p.kind = 'movie')`;
+/** Nombre de fois où l'œuvre a été vue / lue / jouée en entier (film vu, série / animé / manga / jeu terminé). */
+const COMPLETIONS = `(SELECT COUNT(*) FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('movie', 'complete'))`;
 
 /** « Durée » selon le type : minutes (film, jeu), épisodes (série, animé), chapitres sinon tomes (manga). */
 const DURATION = `CASE m.type
@@ -233,6 +242,8 @@ export interface ActivityItem {
   note: string | null;
   /** Durée d'une session de jeu, en minutes. */
   minutes: number | null;
+  /** Ajouté sans date de visionnage. */
+  undated: boolean;
   card: LibraryCard;
 }
 
@@ -280,12 +291,12 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
       .prepare(
         `SELECT * FROM (
            SELECT 'log' AS item_kind, p.logged_at AS at, p.kind AS log_kind, p.season, p.episode, p.chapter,
-                  p.rating AS log_rating, p.note AS log_note, p.duration_minutes AS log_minutes, ${CARD_COLUMNS}
+                  p.rating AS log_rating, p.note AS log_note, p.duration_minutes AS log_minutes, p.undated AS log_undated, ${CARD_COLUMNS}
            FROM progress_log p
            JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ?1 AND l.media_type = ?2 AND p.kind <> 'pause'
            UNION ALL
-           SELECT 'done', l.completed_at, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ${CARD_COLUMNS}
+           SELECT 'done', l.completed_at, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, ${CARD_COLUMNS}
            FROM library_entries l JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ?1 AND l.media_type = ?2 AND l.completed_at IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id)
@@ -317,6 +328,7 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
     log_rating: number | null;
     log_note: string | null;
     log_minutes: number | null;
+    log_undated: number;
   };
 
   return {
@@ -334,7 +346,45 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
       logRating: row.log_rating,
       note: row.log_note,
       minutes: row.log_minutes,
+      undated: row.log_undated === 1,
       card: toCard(row),
     })),
   };
+}
+
+// ---------------------------------------------------------------------
+// Bandeau « En ce moment »
+// ---------------------------------------------------------------------
+
+export interface FocusOverview {
+  /** Focus de chaque type (au plus un par type). */
+  cards: Partial<Record<MediaType, LibraryCard>>;
+  /** Taille de la watchlist / du backlog de chaque type (pour proposer le tirage au sort). */
+  plannedCounts: Record<MediaType, number>;
+}
+
+/** Focus actuels (d'un type, ou de tous) et taille des watchlists / backlogs : 2 requêtes. */
+export async function getFocusOverview(db: D1Database, type: MediaType | null = null): Promise<FocusOverview> {
+  const typeFilter = type ? "AND l.media_type = ?" : "";
+  const typeParams = type ? [type] : [];
+  const [focusRows, plannedRows] = await db.batch<Record<string, unknown>>([
+    db
+      .prepare(
+        `SELECT ${CARD_COLUMNS} FROM focus fo
+         JOIN library_entries l ON l.id = fo.entry_id JOIN media m ON m.id = l.media_id
+         WHERE fo.user_id = ? ${typeFilter}`,
+      )
+      .bind(CURRENT_USER_ID, ...typeParams),
+    db
+      .prepare(
+        `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l
+         WHERE l.user_id = ? AND l.status = 'planned' ${typeFilter} GROUP BY l.media_type`,
+      )
+      .bind(CURRENT_USER_ID, ...typeParams),
+  ]);
+  const cards: Partial<Record<MediaType, LibraryCard>> = {};
+  for (const row of focusRows.results as unknown as CardRow[]) cards[row.type] = toCard(row);
+  const plannedCounts = zeroCounts(MEDIA_TYPES);
+  for (const row of plannedRows.results as { key: MediaType; n: number }[]) plannedCounts[row.key] = row.n;
+  return { cards, plannedCounts };
 }

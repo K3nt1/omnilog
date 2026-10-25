@@ -59,13 +59,18 @@ export interface LibraryCard {
   isOngoing: boolean;
   /** Valeur du tri en cours (date d'ajout, nombre de visionnages…), affichée sous l'affiche. */
   sortValue?: string | number | null;
+  /** Tirée au sort (et pas encore commencée). */
+  drawnAt: string | null;
+  gameCheckpoint: string | null;
+  playtimeMinutes: number | null;
+  sessionsCount: number;
 }
 
 /** Tris proposés selon le type affiché (la durée n'a de sens qu'avec un seul type). */
 export function sortsFor(type: MediaType | null): SortKey[] {
   return SORT_KEYS.filter((key) => {
     if (key === "duree") return type !== null;
-    if (key === "visionnages") return type === null || type === "movie";
+    if (key === "visionnages") return true;
     return true;
   });
 }

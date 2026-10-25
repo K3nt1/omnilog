@@ -36,6 +36,15 @@ export interface LibraryEntry {
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  pauseSeconds: number | null;
+  pausePage: number | null;
+  gameCheckpoint: string | null;
+  sessionsCount: number;
+  playtimeMinutes: number | null;
+  /** Tirée au sort et pas encore commencée. */
+  drawnAt: string | null;
+  /** Une progression faite dans Omnilog peut être annulée. */
+  canUndo: boolean;
 }
 
 export interface JournalLine {
@@ -50,6 +59,8 @@ export interface JournalLine {
   review: string | null;
   tags: string[];
   note: string | null;
+  /** Ajouté sans date de visionnage (at = jour de l'ajout). */
+  undated: boolean;
 }
 
 export interface StoredFiche {
@@ -90,6 +101,13 @@ interface MediaRow {
   current_season: number | null;
   current_episode: number | null;
   current_chapter: number | null;
+  pause_seconds: number | null;
+  pause_page: number | null;
+  game_checkpoint: string | null;
+  sessions_count: number;
+  playtime_minutes: number | null;
+  drawn_at: string | null;
+  can_undo: number;
 }
 
 interface JournalRow {
@@ -104,6 +122,7 @@ interface JournalRow {
   review: string | null;
   tags_json: string | null;
   note: string | null;
+  undated: number;
 }
 
 const parseJson = <T,>(value: string | null, fallback: T): T => {
@@ -121,9 +140,11 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
   const [mediaRows, journalRows, userRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT m.*, l.id AS entry_id, l.status, l.is_focus, l.is_favorite, l.rating, l.review,
+        `SELECT m.*, l.id AS entry_id, l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
                 l.started_at, l.completed_at, l.created_at AS added_at, l.custom_poster_url, l.custom_backdrop_url,
-                l.current_season, l.current_episode, l.current_chapter
+                l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
+                l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at,
+                EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.undo_json IS NOT NULL) AS can_undo
          FROM media m LEFT JOIN library_entries l ON l.media_id = m.id AND l.user_id = ?
          WHERE m.type = ? AND m.source = ? AND m.external_id = ?`,
       )
@@ -131,7 +152,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     db
       .prepare(
         `SELECT p.id, p.kind, p.logged_at, p.season, p.episode, p.chapter, p.duration_minutes, p.rating, p.review,
-                p.tags_json, p.note
+                p.tags_json, p.note, p.undated
          FROM progress_log p
          JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
          WHERE l.user_id = ? AND m.type = ? AND m.source = ? AND m.external_id = ? AND p.kind <> 'pause'
@@ -178,6 +199,13 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
           currentSeason: row.current_season,
           currentEpisode: row.current_episode,
           currentChapter: row.current_chapter,
+          pauseSeconds: row.pause_seconds,
+          pausePage: row.pause_page,
+          gameCheckpoint: row.game_checkpoint,
+          sessionsCount: row.sessions_count,
+          playtimeMinutes: row.playtime_minutes,
+          drawnAt: row.drawn_at,
+          canUndo: row.can_undo === 1,
         }
       : null;
 
@@ -193,6 +221,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     review: r.review,
     tags: parseJson<string[]>(r.tags_json, []),
     note: r.note,
+    undated: r.undated === 1,
   }));
 
   const region = (userRows.results[0] as { watch_region?: string } | undefined)?.watch_region ?? "FR";
@@ -234,9 +263,6 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   const parts: [sql: string, params: unknown[]][] = [];
   if (patch.status !== undefined) {
     parts.push(["status = ?", [patch.status]]);
-    // Seule une œuvre « en cours » peut être le focus (contrainte de la table).
-    // (SQLite évalue le SET sur l'ancienne ligne : on compare donc au nouveau statut passé en paramètre.)
-    parts.push(["is_focus = CASE WHEN ? = 'in_progress' THEN is_focus ELSE 0 END", [patch.status]]);
     // Dates remplies automatiquement si elles sont vides (modifiables ensuite).
     if (patch.status === "completed" && patch.completedAt === undefined) {
       parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
@@ -252,10 +278,14 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   if (patch.completedAt !== undefined) parts.push(["completed_at = ?", [patch.completedAt]]);
   if (parts.length === 0) return true;
 
-  const result = await db
+  const update = db
     .prepare(`UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ? AND user_id = ?`)
-    .bind(...parts.flatMap(([, params]) => params), entryId, CURRENT_USER_ID)
-    .run();
+    .bind(...parts.flatMap(([, params]) => params), entryId, CURRENT_USER_ID);
+  // Une œuvre terminée ou abandonnée n'est plus « en ce moment ».
+  const leavesFocus = patch.status === "completed" || patch.status === "dropped";
+  const [result] = await db.batch(
+    leavesFocus ? [update, db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId)] : [update],
+  );
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -269,6 +299,7 @@ export async function setPublisherFr(db: D1Database, mediaId: number, publisher:
 }
 
 export interface EpisodeLog {
+  id: number;
   season: number | null;
   episode: number | null;
   note: string | null;
@@ -286,7 +317,7 @@ export async function getEpisodeLogs(
     db.prepare("SELECT title, original_title FROM media WHERE type = 'tv' AND source = 'tmdb' AND external_id = ?").bind(externalId),
     db
       .prepare(
-        `SELECT p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review
+        `SELECT p.id, p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review
          FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
          WHERE l.user_id = ? AND m.type = 'tv' AND m.source = 'tmdb' AND m.external_id = ? AND p.kind = 'episode'
          ORDER BY p.logged_at DESC`,

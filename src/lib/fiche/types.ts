@@ -95,5 +95,5 @@ export interface SeasonEpisodeResponse {
   airDate: string | null;
   runtimeMinutes: number | null;
   /** Ton visionnage le plus récent de cet épisode, sinon null. */
-  watched: { at: string; rating: number | null; review: string | null; count: number } | null;
+  watched: { logId: number; at: string; rating: number | null; review: string | null; count: number } | null;
 }
