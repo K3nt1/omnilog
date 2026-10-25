@@ -76,6 +76,8 @@ export type ProgressAction =
   | { kind: "session"; date?: string; minutes?: number; note?: string }
   /** Œuvre terminée (film vu, série / animé / manga / jeu fini). */
   | { kind: "complete"; date?: string; rating?: number | null; review?: string | null }
+  /** Épisode précis coché dans la liste des saisons (série), avec note et critique facultatives. */
+  | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
   | { kind: "undo" };
 
 export class ProgressError extends Error {}
@@ -139,6 +141,31 @@ interface Plan {
   dropFocus?: boolean;
   /** L'œuvre vient d'être terminée (pour passer au film suivant de la saga, à la saison suivante d'un animé…). */
   completed?: boolean;
+  /** Épisodes sautés à cocher aussi (de la position actuelle jusqu'à l'épisode coché), à la même date. */
+  bulkEpisodes?: { season: number; episode: number; at: string }[];
+}
+
+/**
+ * Épisodes de `from` (inclus) jusqu'à `to` (exclu), dans l'ordre des saisons ; vide si `to` est avant `from`.
+ * Saisons inconnues : seulement à l'intérieur d'une même saison.
+ */
+export function episodesBetween(
+  seasons: { season: number; episodes: number }[],
+  from: { season: number; episode: number },
+  to: { season: number; episode: number },
+): { season: number; episode: number }[] {
+  const out: { season: number; episode: number }[] = [];
+  if (seasons.length === 0) {
+    if (from.season === to.season) for (let e = from.episode; e < to.episode; e++) out.push({ season: from.season, episode: e });
+    return out;
+  }
+  let cursor: { season: number; episode: number } | null = from;
+  while (cursor && (cursor.season < to.season || (cursor.season === to.season && cursor.episode < to.episode))) {
+    out.push(cursor);
+    if (out.length > 500) break; // garde-fou
+    cursor = nextTvEpisode(seasons, cursor.season, cursor.episode);
+  }
+  return out;
 }
 
 /** Ce que fait une action, à partir de l'état actuel (fonction pure, testée séparément). */
@@ -279,6 +306,49 @@ export function planAction(
 
     case "complete":
       return complete(action.date, { rating: action.rating ?? null, review: action.review?.trim() || null });
+
+    case "markEpisode": {
+      if (entry.media_type !== "tv") throw new ProgressError("Seuls les épisodes de séries se cochent un par un.");
+      if (action.season < 0 || action.episode < 1) throw new ProgressError("Épisode invalide.");
+      const log = {
+        kind: "episode",
+        season: action.season,
+        episode: action.episode,
+        at: loggedAt(action.date),
+        rating: action.rating ?? null,
+        review: action.review?.trim() || null,
+      };
+      const season = entry.current_season ?? 1;
+      const episode = entry.current_episode ?? 1;
+      // Épisode à la position actuelle ou après : on avance juste après lui. Épisode plus ancien (ou spécial) :
+      // simple visionnage au journal, la position ne bouge pas.
+      const atOrAfter = action.season > 0 && (action.season > season || (action.season === season && action.episode >= episode));
+      if (!atOrAfter) {
+        const status = entry.status === "planned" ? progressing : {};
+        return { set: status, logs: [log], takeFocus: entry.status === "planned" && autoFocus };
+      }
+      // Les épisodes entre la position actuelle et celui coché sont considérés comme vus (comme Serializd).
+      const skipped = episodesBetween(seasons, { season, episode }, { season: action.season, episode: action.episode }).map(
+        (e) => ({ ...e, at: log.at }),
+      );
+      const next = nextTvEpisode(seasons, action.season, action.episode);
+      if (!next && !entry.is_ongoing) {
+        const done = complete(action.date);
+        return {
+          ...done,
+          set: { ...done.set, current_season: action.season, current_episode: action.episode },
+          logs: [log, ...done.logs],
+          bulkEpisodes: skipped,
+        };
+      }
+      const after = next ?? { season: action.season, episode: action.episode + 1 };
+      return {
+        set: { ...progressing, current_season: after.season, current_episode: after.episode, pause_seconds: null },
+        logs: [log],
+        takeFocus: autoFocus,
+        bulkEpisodes: skipped,
+      };
+    }
   }
 }
 
@@ -325,6 +395,20 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
                                  note, logged_at, rating, review, undo_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    if (plan.bulkEpisodes && plan.bulkEpisodes.length > 0) {
+      // Une seule requête pour tous les épisodes sautés (déjà cochés : ignorés).
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO progress_log (entry_id, kind, season, episode, logged_at, undo_json)
+             SELECT ?1, 'episode', json_extract(value, '$[0]'), json_extract(value, '$[1]'), ?2, ?3
+             FROM json_each(?4)
+             WHERE NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = ?1 AND p.kind = 'episode'
+                               AND p.season = json_extract(value, '$[0]') AND p.episode = json_extract(value, '$[1]'))`,
+          )
+          .bind(entryId, plan.bulkEpisodes[0].at, undo, JSON.stringify(plan.bulkEpisodes.map((e) => [e.season, e.episode]))),
+      );
+    }
     for (const log of plan.logs) {
       statements.push(
         insert.bind(
