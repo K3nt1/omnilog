@@ -3,20 +3,22 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FocusBanner } from "@/components/FocusBanner";
 import { LibraryBrowser } from "@/components/LibraryBrowser";
+import { cookies } from "next/headers";
 import { getFocusOverview, getLibraryPage } from "@/lib/browse";
-import { parseLibraryQuery, type RawSearchParams } from "@/lib/library-url";
+import { pageSizeFor, parseViewCookie, VIEW_COOKIE } from "@/lib/browse-shared";
+import { hasFilters, parseLibraryQuery, type RawSearchParams } from "@/lib/library-url";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Bibliothèque" };
 
 export default async function LibraryPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const query = parseLibraryQuery(await searchParams);
+  const prefs = parseViewCookie((await cookies()).get(VIEW_COOKIE)?.value);
   const { env } = getCloudflareContext();
   // Le bandeau « En ce moment » n'apparaît que sur la vue d'ensemble (page 1, sans filtre).
-  const overview =
-    query.page === 1 && !query.type && !query.status && !query.favorite && !query.rating && !query.genre && !query.search.trim();
+  const overview = query.page === 1 && !hasFilters(query);
   const [data, focus] = await Promise.all([
-    getLibraryPage(env.DB, query),
+    getLibraryPage(env.DB, query, pageSizeFor(prefs)),
     overview ? getFocusOverview(env.DB) : Promise.resolve(null),
   ]);
 
@@ -33,7 +35,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Prom
           <FocusBanner overview={focus} />
         </div>
       )}
-      <LibraryBrowser basePath="/bibliotheque" query={query} data={data} fixedType={false} />
+      <LibraryBrowser basePath="/bibliotheque" query={query} data={data} fixedType={false} prefs={prefs} />
     </main>
   );
 }

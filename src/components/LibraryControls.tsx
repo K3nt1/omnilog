@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import type { LibraryQuery, RatingFilter, SortKey } from "@/lib/browse-shared";
+import type { Facet, LibraryQuery, RatingFilter, SortKey } from "@/lib/browse-shared";
 import { libraryHref } from "@/lib/library-url";
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -41,10 +41,45 @@ interface Props {
   /** Libellé de « Durée » selon le type (minutes, épisodes, chapitres…). */
   durationLabel: string;
   genres: { label: string; count: number }[];
+  releaseYears: Facet[];
+  watchYears: Facet[];
+  tags: Facet[];
+  platforms: Facet[];
+}
+
+/** « Vu en », « Lu en », « Joué en » selon le type. */
+function watchYearLabel(type: LibraryQuery["type"]): string {
+  if (type === "manga") return "Lu en";
+  if (type === "game") return "Joué en";
+  if (type === null) return "Vu / lu / joué en";
+  return "Vu en";
+}
+
+const nf = new Intl.NumberFormat("fr-FR");
+
+/** Années de sortie → décennies (« 1970 » → 123 œuvres), de la plus récente à la plus ancienne. */
+function decadesOf(years: Facet[]): { decade: number; count: number }[] {
+  const map = new Map<number, number>();
+  for (const y of years) {
+    const decade = Math.floor(Number(y.value) / 10) * 10;
+    if (Number.isFinite(decade)) map.set(decade, (map.get(decade) ?? 0) + y.count);
+  }
+  return [...map].map(([decade, count]) => ({ decade, count })).sort((a, b) => b.decade - a.decade);
 }
 
 /** Recherche, note, tri : met à jour l'adresse, la page se recharge côté serveur avec les nouveaux filtres. */
-export function LibraryControls({ basePath, query, fixedType, sorts, durationLabel, genres = [] }: Props) {
+export function LibraryControls({
+  basePath,
+  query,
+  fixedType,
+  sorts,
+  durationLabel,
+  genres = [],
+  releaseYears = [],
+  watchYears = [],
+  tags = [],
+  platforms = [],
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(query.search);
@@ -76,6 +111,15 @@ export function LibraryControls({ basePath, query, fixedType, sorts, durationLab
   }, [search, pushed, basePath, query, fixedType, router]);
 
   const field = "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/40";
+  const decades = decadesOf(releaseYears);
+  const yearsOfDecade = query.decade
+    ? releaseYears
+        .filter((y) => Math.floor(Number(y.value) / 10) * 10 === query.decade)
+        .sort((a, b) => a.value.localeCompare(b.value))
+    : [];
+  /** Garde la valeur choisie dans le menu même si plus aucune œuvre ne la porte avec les autres filtres. */
+  const withCurrent = (facets: Facet[], current: string | null) =>
+    current && !facets.some((f) => f.value === current) ? [{ value: current, count: 0 }, ...facets] : facets;
 
   return (
     <div className={`flex flex-wrap items-center gap-2 transition-opacity ${pending ? "opacity-60" : ""}`}>
@@ -101,6 +145,73 @@ export function LibraryControls({ basePath, query, fixedType, sorts, durationLab
           </option>
         ))}
       </select>
+      <select
+        value={query.decade ?? ""}
+        onChange={(e) => go({ decade: e.target.value ? Number(e.target.value) : null, year: null })}
+        aria-label="Filtrer par décennie de sortie"
+        className={field}
+      >
+        <option value="">Toutes les décennies</option>
+        {query.decade && !decades.some((d) => d.decade === query.decade) && <option value={query.decade}>Années {query.decade}</option>}
+        {decades.map((d) => (
+          <option key={d.decade} value={d.decade}>
+            Années {d.decade} ({nf.format(d.count)})
+          </option>
+        ))}
+      </select>
+      {query.decade && (
+        <select
+          value={query.year ?? ""}
+          onChange={(e) => go({ year: e.target.value ? Number(e.target.value) : null })}
+          aria-label="Filtrer par année de sortie"
+          className={field}
+        >
+          <option value="">Toute la décennie</option>
+          {withCurrent(yearsOfDecade, query.year ? String(query.year) : null).map((y) => (
+            <option key={y.value} value={y.value}>
+              {y.value} ({nf.format(y.count)})
+            </option>
+          ))}
+        </select>
+      )}
+      <select
+        value={query.watchYear ?? ""}
+        onChange={(e) => go({ watchYear: e.target.value ? Number(e.target.value) : null })}
+        aria-label="Filtrer par année de visionnage"
+        className={field}
+      >
+        <option value="">{watchYearLabel(query.type)} : toutes</option>
+        {withCurrent(watchYears, query.watchYear ? String(query.watchYear) : null).map((y) => (
+          <option key={y.value} value={y.value}>
+            {watchYearLabel(query.type)} {y.value} ({nf.format(y.count)})
+          </option>
+        ))}
+      </select>
+      {(tags.length > 0 || query.tag) && (
+        <select value={query.tag ?? ""} onChange={(e) => go({ tag: e.target.value || null })} aria-label="Filtrer par tag" className={field}>
+          <option value="">Tous les tags</option>
+          {withCurrent(tags, query.tag).map((t) => (
+            <option key={t.value} value={t.value}>
+              #{t.value} ({nf.format(t.count)})
+            </option>
+          ))}
+        </select>
+      )}
+      {query.type === "game" && (platforms.length > 0 || query.platform) && (
+        <select
+          value={query.platform ?? ""}
+          onChange={(e) => go({ platform: e.target.value || null })}
+          aria-label="Filtrer par plateforme"
+          className={field}
+        >
+          <option value="">Toutes les plateformes</option>
+          {withCurrent(platforms, query.platform).map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.value} ({nf.format(p.count)})
+            </option>
+          ))}
+        </select>
+      )}
       <select
         value={query.rating ?? ""}
         onChange={(e) => go({ rating: (e.target.value || null) as RatingFilter | null })}

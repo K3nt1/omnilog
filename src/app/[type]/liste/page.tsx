@@ -5,6 +5,8 @@ import { notFound } from "next/navigation";
 import { LibraryBrowser } from "@/components/LibraryBrowser";
 import { getLibraryPage } from "@/lib/browse";
 import { TYPE_LABELS, TYPE_SLUGS, typeFromSlug } from "@/lib/labels";
+import { cookies } from "next/headers";
+import { pageSizeFor, parseViewCookie, VIEW_COOKIE } from "@/lib/browse-shared";
 import { parseLibraryQuery, type RawSearchParams } from "@/lib/library-url";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +23,9 @@ export default async function TypeListPage({ params, searchParams }: Props) {
   const type = typeFromSlug((await params).type);
   if (!type) notFound();
   const query = parseLibraryQuery(await searchParams, type);
+  const prefs = parseViewCookie((await cookies()).get(VIEW_COOKIE)?.value);
   const { env } = getCloudflareContext();
-  const data = await getLibraryPage(env.DB, query);
+  const data = await getLibraryPage(env.DB, query, pageSizeFor(prefs));
   const base = `/${TYPE_SLUGS[type]}`;
 
   return (
@@ -33,7 +36,7 @@ export default async function TypeListPage({ params, searchParams }: Props) {
           ← Vue d&apos;ensemble
         </Link>
       </div>
-      <LibraryBrowser basePath={`${base}/liste`} query={query} data={data} fixedType />
+      <LibraryBrowser basePath={`${base}/liste`} query={query} data={data} fixedType prefs={prefs} />
     </main>
   );
 }
