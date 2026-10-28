@@ -26,7 +26,10 @@ function Star({ fill, small }: { fill: 0 | 50 | 100; small?: boolean }) {
   );
 }
 
-/** Note en demi-étoiles (1 à 10 en base = 0,5 à 5 étoiles). Recliquer sur la note actuelle l'efface. */
+/**
+ * Note en demi-étoiles (1 à 10 en base = 0,5 à 5 étoiles).
+ * Recliquer sur la note actuelle l'efface ; le bouton « Effacer » (ou ✕ en petit) fait de même, plus visiblement.
+ */
 export function StarRating({
   value,
   onChange,
@@ -65,6 +68,18 @@ export function StarRating({
         ))}
       </div>
       {!small && <span className="w-10 text-sm text-white/60">{shown ? (shown / 2).toLocaleString("fr-FR") : "—"}</span>}
+      {value !== null && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(null)}
+          aria-label="Effacer la note"
+          title="Effacer la note"
+          className={`rounded-md text-white/50 hover:bg-white/10 hover:text-rose-300 disabled:opacity-50 ${small ? "px-1 text-xs" : "px-2 py-1 text-xs"}`}
+        >
+          {small ? "✕" : "✕ Effacer"}
+        </button>
+      )}
     </div>
   );
 }
