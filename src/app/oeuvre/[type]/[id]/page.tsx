@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToLibrary } from "@/components/fiche/AddToLibrary";
+import { FicheActions } from "@/components/fiche/FicheActions";
 import { ProgressPanel } from "@/components/fiche/ProgressPanel";
 import { Journal } from "@/components/fiche/Journal";
 import { PublisherField } from "@/components/fiche/PublisherField";
@@ -21,6 +22,9 @@ import {
   TYPE_SLUGS,
   typeFromSlug,
 } from "@/lib/labels";
+import { ReleaseText } from "@/components/ReleaseText";
+import { refreshRelease } from "@/lib/release";
+import { displayRelease } from "@/lib/release-shared";
 import { SourceError } from "@/lib/sources/http";
 import { yearOf, type MediaType } from "@/lib/types";
 
@@ -46,10 +50,16 @@ async function load(slug: string, id: string) {
     sourceError = error instanceof SourceError ? error.message : `${SOURCE_NAME[type]} : erreur inattendue`;
     console.error("Fiche en échec", type, id, error);
   }
-  if (!fiche && !stored.media) return { type, stored, fiche: null, sourceError, statuses: new Map() };
+  if (!fiche && !stored.media) return { type, stored, fiche: null, sourceError, statuses: new Map(), release: null };
   const related = fiche?.related.flatMap((g) => g.works) ?? [];
-  const statuses = related.length > 0 ? await getLibraryStatuses(env.DB, related) : new Map();
-  return { type, stored, fiche, sourceError, statuses };
+  // Prochaine sortie : mise à jour en base pour une œuvre enregistrée (vignettes, bandeau), sinon celle de la source.
+  const [statuses, release] = await Promise.all([
+    related.length > 0 ? getLibraryStatuses(env.DB, related) : Promise.resolve(new Map()),
+    stored.media && fiche
+      ? refreshRelease(env, type, { ...stored.media, externalId: id }, fiche)
+      : Promise.resolve(fiche?.nextRelease ?? displayRelease(stored.media?.release)),
+  ]);
+  return { type, stored, fiche, sourceError, statuses, release };
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -88,6 +98,7 @@ function ficheFromStore(type: MediaType, externalId: string, m: StoredMedia): Me
     platforms: [],
     timeToBeat: null,
     nextEpisode: null,
+    nextRelease: null,
     providers: null,
     related: [],
     links: [],
@@ -153,7 +164,7 @@ export default async function FichePage({ params }: Props) {
   const { type: slug, id } = await params;
   const data = await load(slug, id);
   if (!data) notFound();
-  const { type, stored, sourceError, statuses } = data;
+  const { type, stored, sourceError, statuses, release } = data;
 
   if (!data.fiche && !stored.media) {
     return (
@@ -174,6 +185,8 @@ export default async function FichePage({ params }: Props) {
   const links = f.links.map((l) =>
     l.label === "Letterboxd" && stored.media?.externalLinks.letterboxd ? { ...l, url: stored.media.externalLinks.letterboxd } : l,
   );
+  const mangadex = stored.media?.externalLinks.mangadex;
+  if (mangadex?.startsWith("https://")) links.push({ label: "MangaDex", url: mangadex });
   const providers = f.providers;
   const hasOffers = providers && (providers.stream.length || providers.free.length || providers.rent.length || providers.buy.length);
 
@@ -184,7 +197,12 @@ export default async function FichePage({ params }: Props) {
         {backdrop && (
           <div className="absolute inset-0 -z-10 h-80 overflow-hidden sm:h-96">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={backdrop} alt="" className="h-full w-full object-cover opacity-30" />
+            <img
+              src={backdrop}
+              alt=""
+              className="h-full w-full object-cover opacity-30"
+              style={entry?.backdropPosition ? { objectPosition: entry.backdropPosition } : undefined}
+            />
             <div className="absolute inset-0 bg-gradient-to-b from-neutral-950/30 via-neutral-950/70 to-neutral-950" />
           </div>
         )}
@@ -227,12 +245,13 @@ export default async function FichePage({ params }: Props) {
               <>
                 <TrackingPanel key={`${entry.status}|${entry.rating}|${entry.isFavorite}|${entry.startedAt}|${entry.completedAt}`} entry={entry} type={type} />
                 <ProgressPanel
-                  key={`${entry.status}|${entry.currentSeason}|${entry.currentEpisode}|${entry.currentChapter}|${entry.pauseSeconds}|${entry.pausePage}|${entry.sessionsCount}`}
+                  key={`${entry.status}|${entry.currentSeason}|${entry.currentEpisode}|${entry.currentChapter}|${entry.currentVolume}|${entry.pauseSeconds}|${entry.pausePage}|${entry.sessionsCount}`}
                   entry={entry}
                   type={type}
                   seasons={f.seasons}
                   totalEpisodes={f.totalEpisodes}
                   totalChapters={f.totalChapters}
+                  totalVolumes={f.totalVolumes}
                 />
               </>
             ) : (
@@ -254,6 +273,28 @@ export default async function FichePage({ params }: Props) {
                 ))}
               </div>
             )}
+
+            {stored.media && (
+              <FicheActions
+                type={type}
+                slug={slug}
+                externalId={id}
+                title={f.title}
+                entry={
+                  entry
+                    ? {
+                        id: entry.id,
+                        customPosterUrl: entry.customPosterUrl,
+                        customBackdropUrl: entry.customBackdropUrl,
+                        backdropPosition: entry.backdropPosition,
+                      }
+                    : null
+                }
+                journalCount={stored.journal.length}
+                sourcePoster={f.posterUrl ?? stored.media.posterUrl}
+                sourceBackdrop={f.backdropUrl ?? stored.media.backdropUrl}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -271,11 +312,21 @@ export default async function FichePage({ params }: Props) {
           </Section>
         )}
 
-        {f.nextEpisode && (
+        {(release || f.nextEpisode) && (
           <p className="rounded-lg bg-violet-500/10 px-4 py-3 text-sm text-violet-200">
-            <span className="font-medium">{type === "anime" ? "Diffusion : " : "Prochain épisode : "}</span>
-            {f.nextEpisode.label}
-            {f.nextEpisode.date && ` — le ${dateLabel(f.nextEpisode.date)}`}
+            <span className="font-medium">{type === "manga" ? "Dernier chapitre : " : "Prochain épisode : "}</span>
+            {release ? (
+              <ReleaseText release={release} />
+            ) : (
+              f.nextEpisode && (
+                <>
+                  {f.nextEpisode.label}
+                  {f.nextEpisode.date && ` — le ${dateLabel(f.nextEpisode.date)}`}
+                </>
+              )
+            )}
+            {/* Anime : le rythme de diffusion en plus du prochain épisode daté. */}
+            {release && type === "anime" && f.nextEpisode && <span className="text-violet-300/70"> · {f.nextEpisode.label}</span>}
           </p>
         )}
 
@@ -424,6 +475,8 @@ export default async function FichePage({ params }: Props) {
 
         <footer className="border-t border-white/10 pt-4 text-xs text-white/40">
           Données : {SOURCE_NAME[type]}
+          {type === "anime" && release && ", horaires AniList"}
+          {type === "manga" && release && ", chapitres MangaDex"}
           {type === "movie" || type === "tv"
             ? ". Ce produit utilise l'API TMDB mais n'est ni approuvé ni certifié par TMDB."
             : "."}

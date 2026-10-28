@@ -19,12 +19,27 @@ export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType 
   const order = first(params.ordre);
   const rating = first(params.note);
   const page = Number.parseInt(first(params.page) ?? "1", 10);
+  const yearParam = (name: string) => {
+    const n = Number.parseInt(first(params[name]) ?? "", 10);
+    return Number.isInteger(n) && n >= 1870 && n <= 2100 ? n : null;
+  };
+  const year = yearParam("annee");
+  const decadeParam = yearParam("decennie");
+  // Une année choisie impose sa décennie.
+  const decade = year !== null ? Math.floor(year / 10) * 10 : decadeParam !== null ? Math.floor(decadeParam / 10) * 10 : null;
   return {
     type,
     status: statusFromSlug(first(params.statut)),
     favorite: first(params.favoris) === "1",
     rating: (RATING_FILTERS as readonly string[]).includes(rating ?? "") ? (rating as RatingFilter) : null,
     genre: first(params.genre)?.slice(0, 60) || null,
+    decade,
+    year,
+    watchYear: yearParam("visionnage"),
+    ongoing: first(params.diffusion) === "1",
+    withReview: first(params.critique) === "1",
+    tag: first(params.tag)?.slice(0, 60) || null,
+    platform: type === "game" ? first(params.plateforme)?.slice(0, 40) || null : null,
     search: (first(params.q) ?? "").slice(0, 100),
     sort,
     direction: order === "asc" || order === "desc" ? order : DEFAULT_DIRECTION[sort],
@@ -45,10 +60,35 @@ export function libraryHref(basePath: string, q: LibraryQuery, change: Partial<L
   if (next.favorite) params.set("favoris", "1");
   if (next.rating) params.set("note", next.rating);
   if (next.genre) params.set("genre", next.genre);
+  if (next.year) params.set("annee", String(next.year));
+  else if (next.decade) params.set("decennie", String(next.decade));
+  if (next.watchYear) params.set("visionnage", String(next.watchYear));
+  if (next.ongoing) params.set("diffusion", "1");
+  if (next.withReview) params.set("critique", "1");
+  if (next.tag) params.set("tag", next.tag);
+  if (next.platform && next.type === "game") params.set("plateforme", next.platform);
   if (next.search.trim()) params.set("q", next.search.trim());
   if (next.sort !== "activite") params.set("tri", next.sort);
   if (next.direction !== DEFAULT_DIRECTION[next.sort]) params.set("ordre", next.direction);
   if (next.page > 1) params.set("page", String(next.page));
   const query = params.toString();
   return query ? `${basePath}?${query}` : basePath;
+}
+
+/** Au moins un filtre actif (hors type imposé par la page, tri et page). */
+export function hasFilters(q: LibraryQuery, fixedType = false): boolean {
+  return Boolean(
+    q.status ||
+      q.favorite ||
+      q.rating ||
+      q.genre ||
+      q.decade ||
+      q.watchYear ||
+      q.ongoing ||
+      q.withReview ||
+      q.tag ||
+      q.platform ||
+      q.search.trim() ||
+      (!fixedType && q.type),
+  );
 }

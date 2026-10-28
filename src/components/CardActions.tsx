@@ -11,7 +11,7 @@ import { useAction } from "./useAction";
  * Actions rapides sur une vignette : ♥, épisode / chapitre suivant, focus, statut, note.
  * Le bouton « ⋯ » apparaît au survol (ordinateur) et reste visible sur écran tactile.
  */
-export function CardActions({ card }: { card: LibraryCard }) {
+export function CardActions({ card, popover = false }: { card: LibraryCard; /** Vue liste : panneau flottant sous le bouton. */ popover?: boolean }) {
   const { run, busy, error } = useAction();
   const [open, setOpen] = useState(false);
   const patch = (id: string, body: Record<string, unknown>) => run(id, `/api/library/${card.entryId}`, body, "PATCH");
@@ -27,7 +27,11 @@ export function CardActions({ card }: { card: LibraryCard }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`Actions rapides : ${card.title}`}
-        className="absolute right-1.5 top-1.5 z-10 rounded-md bg-black/75 px-2 py-0.5 text-sm leading-none opacity-0 transition group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100"
+        className={
+          popover
+            ? "rounded-md px-2 py-1 text-sm leading-none text-white/60 hover:bg-white/10 hover:text-white"
+            : "absolute right-1.5 top-1.5 z-10 rounded-md bg-black/75 px-2 py-0.5 text-sm leading-none opacity-0 transition group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100"
+        }
       >
         ⋯
       </button>
@@ -36,7 +40,9 @@ export function CardActions({ card }: { card: LibraryCard }) {
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col gap-1.5 overflow-y-auto rounded-lg bg-black/90 p-2 ring-1 ring-white/20"
+      className={`${
+        popover ? "absolute right-0 top-full z-30 mt-1 w-56 shadow-xl" : "absolute inset-0 z-10 overflow-y-auto"
+      } flex flex-col gap-1.5 rounded-lg bg-black/90 p-2 ring-1 ring-white/20`}
       onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
     >
       <div className="flex items-center justify-between gap-2">

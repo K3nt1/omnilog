@@ -144,6 +144,7 @@ export async function getMalFiche(clientId: string, kind: "anime" | "manga", id:
     platforms: [],
     timeToBeat: null,
     nextEpisode: broadcast,
+    nextRelease: null,
     providers: null,
     related,
     links: [{ label: "MyAnimeList", url: `https://myanimelist.net/${kind}/${d.id}` }],

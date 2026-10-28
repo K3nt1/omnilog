@@ -45,6 +45,7 @@ function activityWhat(item: ActivityItem): string | null {
     return parts.length > 0 ? parts.join(" · ") : null;
   }
   if (item.logKind === "chapter" && item.chapter !== null) return `Ch. ${item.chapter.toLocaleString("fr-FR")}`;
+  if (item.logKind === "volume" && item.volume !== null) return `Tome ${item.volume}`;
   if (item.logKind === "session") return item.minutes ? `Session de ${durationLabel(item.minutes)}` : "Session";
   return null;
 }

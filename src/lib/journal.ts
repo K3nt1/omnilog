@@ -27,6 +27,16 @@ function syncRating(db: D1Database, entryId: number): D1PreparedStatement {
     .bind(entryId);
 }
 
+/** Efface la note de l'œuvre s'il ne reste aucun visionnage noté. */
+function clearRatingIfUnrated(db: D1Database, entryId: number): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE library_entries SET rating = NULL WHERE id = ?1 AND NOT EXISTS (
+         SELECT 1 FROM progress_log WHERE entry_id = ?1 AND kind IN ('movie', 'complete') AND rating IS NOT NULL)`,
+    )
+    .bind(entryId);
+}
+
 /** Ligne du journal à la date choisie (midi UTC, pour rester sur le bon jour quel que soit le fuseau). */
 const atDate = (date: string) => `${date}T12:00:00.000Z`;
 
@@ -98,16 +108,22 @@ export async function updateJournalLine(db: D1Database, logId: number, patch: Jo
   if (parts.length === 0) return true;
   const line = await db
     .prepare(
-      `SELECT p.entry_id FROM progress_log p JOIN library_entries l ON l.id = p.entry_id WHERE p.id = ? AND l.user_id = ?`,
+      `SELECT p.entry_id, p.kind, p.rating, l.rating AS entry_rating
+       FROM progress_log p JOIN library_entries l ON l.id = p.entry_id WHERE p.id = ? AND l.user_id = ?`,
     )
     .bind(logId, CURRENT_USER_ID)
-    .first<{ entry_id: number }>();
+    .first<{ entry_id: number; kind: string; rating: number | null; entry_rating: number | null }>();
   if (!line) return false;
-  await db.batch([
+  const statements = [
     db.prepare(`UPDATE progress_log SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ?`).bind(...parts.map(([, v]) => v), logId),
     // La note ou la date a pu changer : la note de l'œuvre suit le visionnage noté le plus récent.
     syncRating(db, line.entry_id),
-  ]);
+  ];
+  // Note effacée sur le dernier visionnage noté, d'où venait la note de l'œuvre : elle s'efface aussi.
+  if (patch.rating === null && (line.kind === "movie" || line.kind === "complete") && line.rating !== null && line.rating === line.entry_rating) {
+    statements.push(clearRatingIfUnrated(db, line.entry_id));
+  }
+  await db.batch(statements);
   return true;
 }
 
@@ -119,14 +135,51 @@ export async function updateJournalLine(db: D1Database, logId: number, patch: Jo
 export async function deleteJournalLine(db: D1Database, logId: number): Promise<boolean> {
   const line = await db
     .prepare(
-      `SELECT p.entry_id, p.kind, p.season, p.episode, l.media_type, l.status
+      `SELECT p.entry_id, p.kind, p.season, p.episode, p.rating, l.media_type, l.status, l.rating AS entry_rating
        FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
        WHERE p.id = ? AND l.user_id = ?`,
     )
     .bind(logId, CURRENT_USER_ID)
-    .first<{ entry_id: number; kind: string; season: number | null; episode: number | null; media_type: MediaType; status: LibraryStatus }>();
+    .first<{
+      entry_id: number;
+      kind: string;
+      season: number | null;
+      episode: number | null;
+      rating: number | null;
+      media_type: MediaType;
+      status: LibraryStatus;
+      entry_rating: number | null;
+    }>();
   if (!line) return false;
-  await db.batch([db.prepare("DELETE FROM progress_log WHERE id = ?").bind(logId), syncRating(db, line.entry_id)]);
+  const statements = [db.prepare("DELETE FROM progress_log WHERE id = ?").bind(logId), syncRating(db, line.entry_id)];
+  if (line.kind === "movie" || line.kind === "complete") {
+    // C'était le dernier visionnage noté et la note de l'œuvre venait de lui : la note s'efface.
+    if (line.rating !== null && line.rating === line.entry_rating) {
+      statements.push(clearRatingIfUnrated(db, line.entry_id));
+    }
+    // Plus aucun visionnage complet : l'œuvre n'est plus vue / lue / jouée (l'inverse de l'ajout).
+    // Film → watchlist ; autre type → en cours s'il reste de la progression, sinon watchlist / backlog.
+    // Sinon la date de fin suit le visionnage complet daté le plus récent (inchangée s'il n'y en a aucun de daté).
+    statements.push(
+      db
+        .prepare(
+          `UPDATE library_entries SET
+             status = CASE WHEN status <> 'completed' OR EXISTS (
+                 SELECT 1 FROM progress_log WHERE entry_id = ?1 AND kind IN ('movie', 'complete')) THEN status
+               WHEN EXISTS (SELECT 1 FROM progress_log WHERE entry_id = ?1 AND kind NOT IN ('movie', 'complete', 'pause'))
+                 THEN 'in_progress'
+               ELSE 'planned' END,
+             completed_at = CASE WHEN NOT EXISTS (
+                 SELECT 1 FROM progress_log WHERE entry_id = ?1 AND kind IN ('movie', 'complete')) THEN NULL
+               ELSE COALESCE((SELECT substr(logged_at, 1, 10) FROM progress_log
+                 WHERE entry_id = ?1 AND kind IN ('movie', 'complete') AND undated = 0 ORDER BY logged_at DESC LIMIT 1),
+                 completed_at) END
+           WHERE id = ?1 AND status = 'completed'`,
+        )
+        .bind(line.entry_id),
+    );
+  }
+  await db.batch(statements);
   if (line.media_type === "tv" && line.kind === "episode" && line.season !== null && line.episode !== null) {
     await recomputeTvPosition(db, line.entry_id, line.status);
   }

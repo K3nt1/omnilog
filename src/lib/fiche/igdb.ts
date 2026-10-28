@@ -144,6 +144,7 @@ export async function getIgdbFiche(env: IgdbCredentials, id: string): Promise<Me
     platforms: game.platforms?.map((p) => p.name) ?? [],
     timeToBeat: timeToBeat && (timeToBeat.hastily || timeToBeat.normally || timeToBeat.completely) ? timeToBeat : null,
     nextEpisode: null,
+    nextRelease: null,
     providers: null,
     related,
     links: [

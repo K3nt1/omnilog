@@ -256,6 +256,8 @@ export interface ImportedEntry {
   isFavorite: boolean;
   currentEpisode: number | null;
   currentChapter: number | null;
+  /** Manga : tome en cours (null = inconnu, la valeur actuelle est gardée). */
+  currentVolume?: number | null;
   startedAt: string | null;
   completedAt: string | null;
   /** Date d'ajout sur le site d'origine (AAAA-MM-JJ) ; sinon la date de l'import. */
@@ -275,9 +277,9 @@ export async function upsertImportedEntry(
   const row = await db
     .prepare(
       `INSERT INTO library_entries (user_id, media_id, media_type, status, rating, review, is_favorite,
-                                    current_episode, current_chapter, started_at, completed_at, created_at)
+                                    current_episode, current_chapter, started_at, completed_at, created_at, current_volume)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))
+               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), ?13)
        ON CONFLICT (user_id, media_id) DO UPDATE SET
          -- Date d'ajout : on garde la plus ancienne (plusieurs entrées Letterboxd peuvent viser la même série).
          created_at = MIN(created_at, excluded.created_at),
@@ -288,6 +290,7 @@ export async function upsertImportedEntry(
          is_favorite = MAX(is_favorite, excluded.is_favorite),
          current_episode = excluded.current_episode,
          current_chapter = excluded.current_chapter,
+         current_volume = COALESCE(excluded.current_volume, current_volume),
          started_at = COALESCE(excluded.started_at, started_at),
          completed_at = COALESCE(excluded.completed_at, completed_at)
        RETURNING id`,
@@ -305,6 +308,7 @@ export async function upsertImportedEntry(
       entry.startedAt,
       entry.completedAt,
       entry.addedAt ? `${entry.addedAt}T00:00:00.000Z` : null,
+      entry.currentVolume ?? null,
     )
     .first<{ id: number }>();
   if (!row) throw new Error("Impossible d'enregistrer l'entrée de bibliothèque");

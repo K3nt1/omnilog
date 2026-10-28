@@ -2,6 +2,7 @@
 // Progression sur une œuvre : épisode vu, chapitre lu, session de jeu, pause, fin, position, annulation.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
+import { lastChapterOfEntryVolume } from "@/lib/manga";
 import { ProgressError, recordProgress, type ProgressAction } from "@/lib/progress";
 import { focusNextInSeries } from "@/lib/sequel";
 
@@ -22,7 +23,15 @@ function parseAction(body: Record<string, unknown>): ProgressAction | null {
     case "chapter":
       return { kind: body.kind, date: date(body.date) };
     case "position":
-      return { kind: "position", season: int(body.season), episode: int(body.episode), chapter: num(body.chapter) };
+      return {
+        kind: "position",
+        season: int(body.season),
+        episode: int(body.episode),
+        chapter: num(body.chapter),
+        volume: body.volume === null ? null : int(body.volume),
+      };
+    case "volume":
+      return { kind: "volume", volume: int(body.volume), date: date(body.date) };
     case "session":
       return {
         kind: "session",
@@ -73,6 +82,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!action) return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
 
   const { env } = getCloudflareContext();
+  // Tome lu : MangaDex donne son dernier chapitre, pour que le chapitre en cours avance aussi.
+  if (action.kind === "volume") action.lastChapter = await lastChapterOfEntryVolume(env.DB, entryId, action.volume);
   try {
     const result = await recordProgress(env.DB, entryId, action);
     if (!result) {

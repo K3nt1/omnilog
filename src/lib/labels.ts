@@ -164,13 +164,14 @@ export function episodeName(note: string, seriesTitles: (string | null)[]): stri
 export const ficheHref = (type: MediaType, externalId: string | null) =>
   externalId ? `/oeuvre/${TYPE_SLUGS[type]}/${externalId}` : `/${TYPE_SLUGS[type]}`;
 
-/** Où on en est, en une ligne : « S08E05 · ⏸ 12:34 », « Ch. 42 · p. 12 », « 3 sessions · 4 h 30 · Velen »… */
+/** Où on en est, en une ligne : « S08E05 · ⏸ 12:34 », « T. 5 · Ch. 42 · p. 12 », « 3 sessions · 4 h 30 · Velen »… */
 export function positionLine(p: {
   type: MediaType;
   status: LibraryStatus;
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  currentVolume?: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;
   sessionsCount?: number;
@@ -181,6 +182,7 @@ export function positionLine(p: {
   const pad = (n: number) => String(n).padStart(2, "0");
   if (p.type === "tv") parts.push(`S${pad(p.currentSeason ?? 1)}E${pad(p.currentEpisode ?? 1)}`);
   if (p.type === "anime") parts.push(`Ép. ${p.currentEpisode ?? 1}`);
+  if (p.type === "manga" && p.currentVolume) parts.push(`T. ${p.currentVolume}`);
   if (p.type === "manga") parts.push(`Ch. ${(p.currentChapter ?? 1).toLocaleString("fr-FR")}`);
   if (p.pauseSeconds !== null) parts.push(`⏸ ${clockLabel(p.pauseSeconds)}`);
   if (p.pausePage !== null) parts.push(`p. ${p.pausePage}`);

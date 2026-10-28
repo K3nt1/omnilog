@@ -10,6 +10,7 @@ interface EntryState {
   current_season: number | null;
   current_episode: number | null;
   current_chapter: number | null;
+  current_volume: number | null;
   pause_seconds: number | null;
   pause_page: number | null;
   game_checkpoint: string | null;
@@ -26,6 +27,7 @@ const STATE_COLUMNS: (keyof EntryState)[] = [
   "current_season",
   "current_episode",
   "current_chapter",
+  "current_volume",
   "pause_seconds",
   "pause_page",
   "game_checkpoint",
@@ -59,6 +61,7 @@ interface LoadedEntry extends EntryState {
   external_id: string | null;
   total_episodes: number | null;
   total_chapters: number | null;
+  total_volumes: number | null;
   is_ongoing: number;
 }
 
@@ -70,8 +73,13 @@ export type ProgressAction =
   | { kind: "episode"; date?: string }
   /** Chapitre en cours lu (manga). */
   | { kind: "chapter"; date?: string }
+  /**
+   * Tome entier lu (manga) : le tome en cours par défaut, ou un tome précis (« Tome 12 lu »).
+   * `lastChapter` : dernier chapitre de ce tome d'après MangaDex (rempli par la route), pour avancer le chapitre aussi.
+   */
+  | { kind: "volume"; volume?: number; date?: string; lastChapter?: number | null }
   /** Choisir où on en est, sans rien enregistrer au journal. */
-  | { kind: "position"; season?: number; episode?: number; chapter?: number }
+  | { kind: "position"; season?: number; episode?: number; chapter?: number; volume?: number | null }
   /** Session de jeu : date, durée, où j'en suis (facultatif). */
   | { kind: "session"; date?: string; minutes?: number; note?: string }
   /** Œuvre terminée (film vu, série / anime / manga / jeu fini). */
@@ -91,7 +99,7 @@ async function loadEntry(db: D1Database, entryId: number) {
     db
       .prepare(
         `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => (c === "is_focus" ? `${FOCUS_EXPR} AS is_focus` : `l.${c}`)).join(", ")},
-                m.external_id, m.total_episodes, m.total_chapters, m.is_ongoing
+                m.external_id, m.total_episodes, m.total_chapters, m.total_volumes, m.is_ongoing
          FROM library_entries l JOIN media m ON m.id = l.media_id
          WHERE l.id = ? AND l.user_id = ?`,
       )
@@ -134,7 +142,7 @@ export function nextTvEpisode(
 
 interface Plan {
   set: Partial<EntryState>;
-  logs: { kind: string; season?: number | null; episode?: number | null; chapter?: number | null; pauseSeconds?: number | null; pausePage?: number | null; minutes?: number | null; note?: string | null; at: string; rating?: number | null; review?: string | null }[];
+  logs: { kind: string; season?: number | null; episode?: number | null; chapter?: number | null; volume?: number | null; pauseSeconds?: number | null; pausePage?: number | null; minutes?: number | null; note?: string | null; at: string; rating?: number | null; review?: string | null }[];
   /** Devient le focus de son type (l'ancien focus le perd). */
   takeFocus: boolean;
   /** Perd le focus (œuvre terminée). */
@@ -239,8 +247,15 @@ export function planAction(
         if (!action.episode || action.episode < 1) throw new ProgressError("Épisode invalide.");
         set.current_episode = action.episode;
       } else if (entry.media_type === "manga") {
-        if (action.chapter === undefined || action.chapter < 0) throw new ProgressError("Chapitre invalide.");
-        set.current_chapter = action.chapter;
+        if (action.chapter === undefined && action.volume === undefined) throw new ProgressError("Chapitre invalide.");
+        if (action.chapter !== undefined) {
+          if (action.chapter < 0) throw new ProgressError("Chapitre invalide.");
+          set.current_chapter = action.chapter;
+        }
+        if (action.volume !== undefined) {
+          if (action.volume !== null && (!Number.isInteger(action.volume) || action.volume < 1)) throw new ProgressError("Tome invalide.");
+          set.current_volume = action.volume;
+        }
       } else {
         throw new ProgressError("Pas de position pour ce type.");
       }
@@ -285,6 +300,35 @@ export function planAction(
         return { ...done, set: { ...done.set, current_chapter: chapter }, logs: [log, ...done.logs] };
       }
       return { set: { ...progressing, current_chapter: Math.floor(chapter) + 1, pause_page: null }, logs: [log], takeFocus: autoFocus };
+    }
+
+    case "volume": {
+      if (entry.media_type !== "manga") throw new ProgressError("Pas de tomes pour ce type.");
+      const volume = action.volume ?? entry.current_volume ?? 1;
+      if (!Number.isInteger(volume) || volume < 1) throw new ProgressError("Tome invalide.");
+      const last = action.lastChapter ?? null;
+      const log = { kind: "volume", volume, chapter: last, at: loggedAt(action.date) };
+      // Le chapitre en cours passe juste après le dernier chapitre du tome (jamais en arrière).
+      const chapter =
+        last !== null ? Math.max(entry.current_chapter ?? 1, Math.floor(last) + 1) : entry.current_chapter;
+      if (entry.total_volumes && volume >= entry.total_volumes && !entry.is_ongoing) {
+        const done = complete(action.date);
+        return {
+          ...done,
+          set: { ...done.set, current_volume: volume, current_chapter: last !== null ? Math.max(entry.current_chapter ?? 1, last) : entry.current_chapter },
+          logs: [log, ...done.logs],
+        };
+      }
+      return {
+        set: {
+          ...progressing,
+          current_volume: Math.max(entry.current_volume ?? 1, volume + 1),
+          current_chapter: chapter,
+          pause_page: null,
+        },
+        logs: [log],
+        takeFocus: autoFocus,
+      };
     }
 
     case "session": {
@@ -391,9 +435,9 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
     const snapshot = Object.fromEntries(STATE_COLUMNS.map((c) => [c, entry[c]]));
     const undo = JSON.stringify({ group: crypto.randomUUID(), state: snapshot });
     const insert = db.prepare(
-      `INSERT INTO progress_log (entry_id, kind, season, episode, chapter, pause_seconds, pause_page, duration_minutes,
-                                 note, logged_at, rating, review, undo_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO progress_log (entry_id, kind, season, episode, chapter, volume, pause_seconds, pause_page,
+                                 duration_minutes, note, logged_at, rating, review, undo_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     if (plan.bulkEpisodes && plan.bulkEpisodes.length > 0) {
       // Une seule requête pour tous les épisodes sautés (déjà cochés : ignorés).
@@ -417,6 +461,7 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
           log.season ?? null,
           log.episode ?? null,
           log.chapter ?? null,
+          log.volume ?? null,
           log.pauseSeconds ?? null,
           log.pausePage ?? null,
           log.minutes ?? null,
