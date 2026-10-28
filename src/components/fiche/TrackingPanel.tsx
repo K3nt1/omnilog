@@ -15,6 +15,13 @@ export function TrackingPanel({ entry, type }: { entry: LibraryEntry; type: Medi
   // Critique : affichée mise en forme ; le champ de modification montre sa version texte.
   const [review, setReview] = useState(htmlToPlain(entry.review ?? ""));
   const [editingReview, setEditingReview] = useState(!entry.review);
+  // Données relues du serveur (après un visionnage ajouté ou supprimé, une progression…) : le panneau les reprend.
+  const [fromServer, setFromServer] = useState(entry);
+  if (entry !== fromServer) {
+    setFromServer(entry);
+    setState(entry);
+    if (!editingReview) setReview(htmlToPlain(entry.review ?? ""));
+  }
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

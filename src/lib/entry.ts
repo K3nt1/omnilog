@@ -270,6 +270,11 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
     if (patch.status === "in_progress" && patch.startedAt === undefined) {
       parts.push(["started_at = COALESCE(started_at, date('now'))", []]);
     }
+    // Retour dans la watchlist / le backlog : pas encore commencée, donc pas de dates.
+    if (patch.status === "planned") {
+      if (patch.startedAt === undefined) parts.push(["started_at = NULL", []]);
+      if (patch.completedAt === undefined) parts.push(["completed_at = NULL", []]);
+    }
   }
   if (patch.isFavorite !== undefined) parts.push(["is_favorite = ?", [patch.isFavorite ? 1 : 0]]);
   if (patch.rating !== undefined) parts.push(["rating = ?", [patch.rating]]);
