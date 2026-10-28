@@ -3,6 +3,7 @@ import type { LibraryCard } from "@/lib/browse-shared";
 import { ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { yearOf } from "@/lib/types";
 import { CardActions } from "./CardActions";
+import { ReleaseText } from "./ReleaseText";
 import { pauseOf, progressOf, STATUS_STYLE } from "./MediaCard";
 
 /** Ligne de la vue liste : petite affiche, titre, statut, note, progression, info du tri. */
@@ -43,7 +44,11 @@ export function MediaRow({
       <div className="hidden shrink-0 items-center gap-1.5 text-xs sm:flex">
         {progress && <span className="text-white/70">{progress.label}</span>}
         {pause && <span className="text-white/70">{pause}</span>}
-        {card.isOngoing && <span className="rounded bg-violet-600/80 px-1.5 py-0.5">En diffusion</span>}
+        {card.release ? (
+          <ReleaseText release={card.release} className="rounded bg-violet-600/80 px-1.5 py-0.5" />
+        ) : (
+          card.isOngoing && <span className="rounded bg-violet-600/80 px-1.5 py-0.5">En diffusion</span>
+        )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-1.5 text-xs sm:w-36">
         {card.isFocus && <span title="En ce moment">🎯</span>}

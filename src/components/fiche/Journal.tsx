@@ -20,6 +20,8 @@ function what(line: JournalLine, titles: (string | null)[]): string | null {
     return [number, name].filter(Boolean).join(" · ") || null;
   }
   if (line.kind === "chapter" && line.chapter !== null) return `Ch. ${line.chapter.toLocaleString("fr-FR")}`;
+  if (line.kind === "volume" && line.volume !== null)
+    return `Tome ${line.volume}${line.chapter !== null ? ` · jusqu'au ch. ${line.chapter.toLocaleString("fr-FR")}` : ""}`;
   if (line.kind === "session") return line.minutes ? durationLabel(line.minutes) : null;
   return null;
 }

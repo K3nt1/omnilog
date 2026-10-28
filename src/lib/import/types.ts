@@ -14,6 +14,8 @@ export interface MalImportItem {
   status: LibraryStatus;
   score: number | null; // 1 à 10
   progress: number; // épisodes vus / chapitres lus
+  /** Manga : tomes lus (absent des anciennes versions de la page d'import). */
+  volumes?: number;
   total: number | null; // total connu dans l'export
   startDate: string | null; // AAAA-MM-JJ
   finishDate: string | null;

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { LibraryCard } from "@/lib/browse-shared";
 import { CardActions } from "./CardActions";
+import { ReleaseText } from "./ReleaseText";
 import { clockLabel, ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { yearOf } from "@/lib/types";
 
@@ -22,8 +23,9 @@ export function progressOf(card: LibraryCard): { label: string; ratio: number | 
   if (card.type === "manga" && card.currentChapter !== null) {
     const chapter = card.currentChapter.toLocaleString("fr-FR");
     const total = card.totalChapters;
+    const volume = card.currentVolume ? `T. ${card.currentVolume} · ` : "";
     return {
-      label: total ? `Ch. ${chapter} / ${total}` : `Ch. ${chapter}`,
+      label: total ? `${volume}Ch. ${chapter} / ${total}` : `${volume}Ch. ${chapter}`,
       ratio: total ? Math.min(1, (card.currentChapter - 1) / total) : null,
     };
   }
@@ -113,7 +115,11 @@ export function MediaCard({
                   ♥
                 </span>
               )}
-              {card.isOngoing && <span className="rounded bg-violet-600/80 px-1.5 py-0.5">En diffusion</span>}
+              {card.release ? (
+                <ReleaseText release={card.release} short className="rounded bg-violet-600/85 px-1.5 py-0.5" />
+              ) : (
+                card.isOngoing && <span className="rounded bg-violet-600/80 px-1.5 py-0.5">En diffusion</span>
+              )}
             </div>
           </div>
 

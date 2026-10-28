@@ -196,6 +196,7 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
       platforms: [],
       timeToBeat: null,
       nextEpisode: null,
+      nextRelease: null,
       providers: providersFor(m["watch/providers"], region),
       related,
       links: links(m.external_ids?.imdb_id, m.homepage),
@@ -252,6 +253,15 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
           date: next.air_date || null,
         }
       : null,
+    nextRelease:
+      next && next.air_date
+        ? {
+            kind: "next",
+            label: `S${String(next.season_number).padStart(2, "0")}E${String(next.episode_number).padStart(2, "0")}`,
+            at: next.air_date,
+            precision: "day",
+          }
+        : null,
     providers: providersFor(s["watch/providers"], region),
     related: [],
     links: links(s.external_ids?.imdb_id, s.homepage),

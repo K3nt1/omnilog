@@ -70,6 +70,7 @@ export function parseMalXml(xml: string): MalParseResult {
       status,
       score: score >= 1 && score <= 10 ? score : null,
       progress: toInt(readTag(block, kind === "anime" ? "my_watched_episodes" : "my_read_chapters")),
+      ...(kind === "manga" ? { volumes: toInt(readTag(block, "my_read_volumes")) } : {}),
       total: total > 0 ? total : null,
       startDate: toDate(readTag(block, "my_start_date")),
       finishDate: toDate(readTag(block, "my_finish_date")),

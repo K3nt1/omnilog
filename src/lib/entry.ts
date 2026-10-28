@@ -1,5 +1,6 @@
 // Fiche média côté base : l'œuvre (si elle est en base), ton suivi, ton journal ; et leurs modifications.
 import { CURRENT_USER_ID } from "./library";
+import { parseRelease, type ReleaseInfo } from "./release-shared";
 import { SOURCE_FOR_TYPE, type LibraryStatus, type MediaType } from "./types";
 
 export interface StoredMedia {
@@ -19,6 +20,8 @@ export interface StoredMedia {
   publisherFr: string | null;
   /** Liens enregistrés à l'import (Letterboxd…), prioritaires sur les liens construits. */
   externalLinks: Record<string, string>;
+  /** Prochain épisode / dernier chapitre enregistré (voir release.ts). */
+  release: ReleaseInfo | null;
 }
 
 export interface LibraryEntry {
@@ -33,9 +36,13 @@ export interface LibraryEntry {
   addedAt: string;
   customPosterUrl: string | null;
   customBackdropUrl: string | null;
+  /** Cadrage de l'image de fond (position CSS « 50% 30% »). */
+  backdropPosition: string | null;
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  /** Manga : tome en cours. */
+  currentVolume: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;
   gameCheckpoint: string | null;
@@ -54,6 +61,7 @@ export interface JournalLine {
   season: number | null;
   episode: number | null;
   chapter: number | null;
+  volume: number | null;
   minutes: number | null;
   rating: number | null;
   review: string | null;
@@ -87,6 +95,7 @@ interface MediaRow {
   extra_json: string | null;
   publisher_fr: string | null;
   external_links_json: string | null;
+  release_json: string | null;
   entry_id: number | null;
   status: LibraryStatus;
   is_focus: number;
@@ -98,9 +107,11 @@ interface MediaRow {
   added_at: string;
   custom_poster_url: string | null;
   custom_backdrop_url: string | null;
+  backdrop_position: string | null;
   current_season: number | null;
   current_episode: number | null;
   current_chapter: number | null;
+  current_volume: number | null;
   pause_seconds: number | null;
   pause_page: number | null;
   game_checkpoint: string | null;
@@ -117,6 +128,7 @@ interface JournalRow {
   season: number | null;
   episode: number | null;
   chapter: number | null;
+  volume: number | null;
   duration_minutes: number | null;
   rating: number | null;
   review: string | null;
@@ -142,7 +154,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
       .prepare(
         `SELECT m.*, l.id AS entry_id, l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
                 l.started_at, l.completed_at, l.created_at AS added_at, l.custom_poster_url, l.custom_backdrop_url,
-                l.current_season, l.current_episode, l.current_chapter, l.pause_seconds, l.pause_page,
+                l.backdrop_position, l.current_season, l.current_episode, l.current_chapter, l.current_volume, l.pause_seconds, l.pause_page,
                 l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at,
                 EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.undo_json IS NOT NULL) AS can_undo
          FROM media m LEFT JOIN library_entries l ON l.media_id = m.id AND l.user_id = ?
@@ -151,7 +163,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
       .bind(CURRENT_USER_ID, type, source, externalId),
     db
       .prepare(
-        `SELECT p.id, p.kind, p.logged_at, p.season, p.episode, p.chapter, p.duration_minutes, p.rating, p.review,
+        `SELECT p.id, p.kind, p.logged_at, p.season, p.episode, p.chapter, p.volume, p.duration_minutes, p.rating, p.review,
                 p.tags_json, p.note, p.undated
          FROM progress_log p
          JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
@@ -180,6 +192,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
         genres: parseJson<{ genres?: string[] }>(row.extra_json, {}).genres ?? [],
         publisherFr: row.publisher_fr ?? null,
         externalLinks: parseJson<Record<string, string>>(row.external_links_json, {}),
+        release: parseRelease(row.release_json),
       }
     : null;
   const entry: LibraryEntry | null =
@@ -196,9 +209,11 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
           addedAt: row.added_at,
           customPosterUrl: row.custom_poster_url,
           customBackdropUrl: row.custom_backdrop_url,
+          backdropPosition: row.backdrop_position,
           currentSeason: row.current_season,
           currentEpisode: row.current_episode,
           currentChapter: row.current_chapter,
+          currentVolume: row.current_volume,
           pauseSeconds: row.pause_seconds,
           pausePage: row.pause_page,
           gameCheckpoint: row.game_checkpoint,
@@ -216,6 +231,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
     season: r.season,
     episode: r.episode,
     chapter: r.chapter,
+    volume: r.volume,
     minutes: r.duration_minutes,
     rating: r.rating,
     review: r.review,
@@ -255,6 +271,10 @@ export interface EntryPatch {
   review?: string | null;
   startedAt?: string | null; // AAAA-MM-JJ
   completedAt?: string | null;
+  /** Affiche / image de fond personnalisées (null = celles de la source) et cadrage du fond. */
+  customPosterUrl?: string | null;
+  customBackdropUrl?: string | null;
+  backdropPosition?: string | null;
 }
 
 /** Morceaux du SET pour un changement de statut (dates remplies ou effacées selon le statut). */
@@ -288,6 +308,9 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   if (patch.review !== undefined) parts.push(["review = ?", [patch.review]]);
   if (patch.startedAt !== undefined) parts.push(["started_at = ?", [patch.startedAt]]);
   if (patch.completedAt !== undefined) parts.push(["completed_at = ?", [patch.completedAt]]);
+  if (patch.customPosterUrl !== undefined) parts.push(["custom_poster_url = ?", [patch.customPosterUrl]]);
+  if (patch.customBackdropUrl !== undefined) parts.push(["custom_backdrop_url = ?", [patch.customBackdropUrl]]);
+  if (patch.backdropPosition !== undefined) parts.push(["backdrop_position = ?", [patch.backdropPosition]]);
   if (parts.length === 0) return true;
 
   const update = db
