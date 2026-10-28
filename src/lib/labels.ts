@@ -5,7 +5,7 @@ import { LIBRARY_STATUSES, MEDIA_TYPES, type LibraryStatus, type MediaType } fro
 export const TYPE_LABELS: Record<MediaType, string> = {
   movie: "Films",
   tv: "Séries",
-  anime: "Animés",
+  anime: "Animes",
   manga: "Mangas",
   game: "Jeux",
 };
@@ -14,7 +14,7 @@ export const TYPE_LABELS: Record<MediaType, string> = {
 export const TYPE_SINGULAR: Record<MediaType, string> = {
   movie: "Film",
   tv: "Série",
-  anime: "Animé",
+  anime: "Anime",
   manga: "Manga",
   game: "Jeu",
 };

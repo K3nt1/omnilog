@@ -1,4 +1,4 @@
-// Fiche d'un animé ou d'un manga depuis MyAnimeList : studio, auteurs, œuvres liées (suites, adaptations…).
+// Fiche d'un anime ou d'un manga depuis MyAnimeList : studio, auteurs, œuvres liées (suites, adaptations…).
 import { malGet } from "../sources/mal";
 import type { MediaFiche, RelatedGroup, RelatedWork } from "./types";
 
