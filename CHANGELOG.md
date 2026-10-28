@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/K3nt1/omnilog/compare/v0.5.1...v0.6.0) (2026-10-28)
+
+
+### ✨ Nouveautés
+
+* **bibliotheque:** vue liste, taille des affiches, nouveaux filtres et sélection multiple ([#48](https://github.com/K3nt1/omnilog/issues/48)) ([3257920](https://github.com/K3nt1/omnilog/commit/325792017a86ff1fe5694a2f3d2f77f0c68d2b13))
+* **fiche:** tomes de manga, prochaines sorties, images perso, rafraîchir, retirer, changer d'œuvre ([#49](https://github.com/K3nt1/omnilog/issues/49)) ([5b7243e](https://github.com/K3nt1/omnilog/commit/5b7243eb9f2cc39a3e19ab1be4f8eb8754a96e7b))
+* **note:** bouton « Effacer la note » à côté des étoiles ([#50](https://github.com/K3nt1/omnilog/issues/50)) ([7b26edc](https://github.com/K3nt1/omnilog/commit/7b26edc9405eed703655f9c1470e324304238805))
+
+
+### 🐛 Corrections
+
+* **journal:** supprimer un visionnage annule son effet, « Mon suivi » suit le serveur ([#47](https://github.com/K3nt1/omnilog/issues/47)) ([5f5873b](https://github.com/K3nt1/omnilog/commit/5f5873bd872b2220dbd9f662ed7d32cc41477a3c))
+
 ## [0.5.1](https://github.com/K3nt1/omnilog/compare/v0.5.0...v0.5.1) (2026-10-28)
 
 
