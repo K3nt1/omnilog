@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/K3nt1/omnilog/compare/v0.5.0...v0.5.1) (2026-10-28)
+
+
+### 🐛 Corrections
+
+* **journal:** la note de l'œuvre suit le dernier visionnage noté, « anime » sans accent ([#43](https://github.com/K3nt1/omnilog/issues/43)) ([4c030e3](https://github.com/K3nt1/omnilog/commit/4c030e36a40398ba318dfd3ce11f52644fb226ad))
+
 ## [0.5.0](https://github.com/K3nt1/omnilog/compare/v0.4.0...v0.5.0) (2026-10-25)
 
 
