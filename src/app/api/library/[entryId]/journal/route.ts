@@ -1,5 +1,5 @@
 // POST /api/library/12/journal  { "date": "2026-10-20", "rating": 8, "review": "…", "tags": ["vo"] }
-// Ajoute un visionnage au journal (film revu, série / animé / manga / jeu refait en entier).
+// Ajoute un visionnage au journal (film revu, série / anime / manga / jeu refait en entier).
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { addJournalLine } from "@/lib/journal";
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { env } = getCloudflareContext();
   const added = await addJournalLine(env.DB, entryId, patch);
   if (!added) return NextResponse.json({ error: "Œuvre absente de ta bibliothèque." }, { status: 404 });
-  // Film d'une saga (ou saison d'animé) en focus qu'on vient de voir : le focus passe à la suite.
+  // Film d'une saga (ou saison d'anime) en focus qu'on vient de voir : le focus passe à la suite.
   const next =
     added.completed && added.wasFocus && added.externalId ? await focusNextInSeries(env, added.type, added.externalId) : null;
   return NextResponse.json({ ok: true, next }, { status: 201, headers: { "Cache-Control": "no-store" } });

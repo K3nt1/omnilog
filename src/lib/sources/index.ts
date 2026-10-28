@@ -49,8 +49,8 @@ export async function searchAll(env: CloudflareEnv, query: string, types: Set<Me
 }
 
 /**
- * Un animé japonais existe souvent deux fois : chez TMDB (série / film d'animation) et chez MyAnimeList.
- * On garde la version MAL, qui sert pour les animés dans Omnilog, et on retire la version TMDB quand
+ * Un anime japonais existe souvent deux fois : chez TMDB (série / film d'animation) et chez MyAnimeList.
+ * On garde la version MAL, qui sert pour les animes dans Omnilog, et on retire la version TMDB quand
  * c'est bien la même œuvre : animation en japonais, même titre (français, original, anglais ou japonais)
  * et année à un an près. Sinon (pas d'équivalent MAL dans les résultats), le résultat TMDB reste.
  */

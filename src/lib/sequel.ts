@@ -1,6 +1,6 @@
 // Après avoir terminé une œuvre en focus : le focus passe à la suite.
 // - film d'une saga (collection TMDB) : le film suivant, par date de sortie, pas encore vu ;
-// - animé : la saison suivante (relation « suite » chez MyAnimeList), pas encore vue.
+// - anime : la saison suivante (relation « suite » chez MyAnimeList), pas encore vue.
 // Séries : rien à faire, le focus avance déjà d'épisode en épisode et de saison en saison.
 // Mangas et jeux : pas de passage automatique.
 import { addToLibrary, CURRENT_USER_ID } from "./library";
@@ -45,7 +45,7 @@ async function nextMovies(env: CloudflareEnv, id: string): Promise<string[]> {
   return (index >= 0 ? parts.slice(index + 1) : []).map((p) => String(p.id));
 }
 
-/** Saisons suivantes d'un animé (chaîne des « suites » MAL), au plus 6 étapes. */
+/** Saisons suivantes d'un anime (chaîne des « suites » MAL), au plus 6 étapes. */
 async function nextAnimes(env: CloudflareEnv, id: string): Promise<string[]> {
   const chain: string[] = [];
   let current = id;
@@ -70,7 +70,7 @@ async function nextAnimes(env: CloudflareEnv, id: string): Promise<string[]> {
 export async function focusNextInSeries(env: CloudflareEnv, type: MediaType, externalId: string): Promise<string | null> {
   if (type !== "movie" && type !== "anime") return null;
   try {
-    // Toute la suite de la saga / de l'animé, puis la première œuvre pas encore vue.
+    // Toute la suite de la saga / de l'anime, puis la première œuvre pas encore vue.
     const candidates = type === "movie" ? await nextMovies(env, externalId) : await nextAnimes(env, externalId);
     const statuses = await statusesOf(env.DB, type, candidates);
     const next = candidates.find((c) => statuses.get(c) !== "completed");

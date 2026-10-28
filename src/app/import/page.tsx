@@ -328,7 +328,7 @@ export default function ImportPage() {
       {/* ---------- MyAnimeList ---------- */}
       <section className="mb-8 rounded-xl border border-white/10 p-5">
         <h2 className="mb-1 text-xl font-semibold">MyAnimeList</h2>
-        <p className="mb-4 text-sm text-white/60">Les exports XML des animés et des mangas (.xml ou .xml.gz).</p>
+        <p className="mb-4 text-sm text-white/60">Les exports XML des animes et des mangas (.xml ou .xml.gz).</p>
         <input
           type="file"
           multiple
@@ -340,7 +340,7 @@ export default function ImportPage() {
         {mal && (
           <div className="mt-4 space-y-3 text-sm">
             <p className="text-white/80">
-              {mal.filter((i) => i.kind === "anime").length} animés · {mal.filter((i) => i.kind === "manga").length}{" "}
+              {mal.filter((i) => i.kind === "anime").length} animes · {mal.filter((i) => i.kind === "manga").length}{" "}
               mangas · {mal.filter((i) => i.status === "in_progress").length} en cours ·{" "}
               {mal.filter((i) => i.score).length} notés
             </p>
