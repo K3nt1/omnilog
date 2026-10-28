@@ -63,7 +63,7 @@ export interface MediaFiche {
   releaseDate: string | null;
   /** « Sortie », « Première diffusion », « Début de publication »… */
   releaseLabel: string;
-  /** Film : durée ; série / animé : durée d'un épisode (minutes). */
+  /** Film : durée ; série / anime : durée d'un épisode (minutes). */
   runtimeMinutes: number | null;
   totalEpisodes: number | null;
   totalChapters: number | null;
@@ -79,7 +79,7 @@ export interface MediaFiche {
   platforms: string[];
   /** Jeux : durée de vie en minutes (IGDB). */
   timeToBeat: { hastily: number | null; normally: number | null; completely: number | null } | null;
-  /** Prochain épisode annoncé (séries TMDB) ou jour de diffusion (animés MAL). */
+  /** Prochain épisode annoncé (séries TMDB) ou jour de diffusion (animes MAL). */
   nextEpisode: { label: string; date: string | null } | null;
   providers: FicheProviders | null;
   related: RelatedGroup[];

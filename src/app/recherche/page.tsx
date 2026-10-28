@@ -177,7 +177,7 @@ function SearchPage() {
         autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Un film, une série, un animé, un manga, un jeu…"
+        placeholder="Un film, une série, un anime, un manga, un jeu…"
         className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-lg outline-none focus:border-white/40"
       />
 
@@ -230,7 +230,7 @@ function SearchPage() {
       )}
       {active && data && !loading && data.results.length === 0 && (
         <p className="mt-6 text-white/60">
-          Aucun résultat.{trimmed.length < 3 && " Les animés et mangas demandent au moins 3 caractères."}
+          Aucun résultat.{trimmed.length < 3 && " Les animes et mangas demandent au moins 3 caractères."}
         </p>
       )}
 
@@ -283,7 +283,7 @@ function SearchPage() {
       ))}
 
       <footer className="mt-16 border-t border-white/10 pt-4 text-xs text-white/40">
-        Données : TMDB (films, séries), IGDB (jeux), MyAnimeList (animés, mangas). Ce produit utilise l&apos;API
+        Données : TMDB (films, séries), IGDB (jeux), MyAnimeList (animes, mangas). Ce produit utilise l&apos;API
         TMDB mais n&apos;est ni approuvé ni certifié par TMDB.
       </footer>
     </main>

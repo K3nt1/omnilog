@@ -1,4 +1,4 @@
-// MyAnimeList (API officielle v2) : animés et mangas.
+// MyAnimeList (API officielle v2) : animes et mangas.
 // Doc : https://myanimelist.net/apiconfig/references/api/v2
 // Lecture seule avec le Client ID (en-tête X-MAL-CLIENT-ID), sans compte utilisateur.
 import { genreLabels } from "../genres";

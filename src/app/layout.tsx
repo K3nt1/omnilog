@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 		default: "Omnilog",
 		template: "%s · Omnilog",
 	},
-	description: "Films, séries, animés, mangas et jeux vidéo : watchlists, progression et rappels au même endroit.",
+	description: "Films, séries, animes, mangas et jeux vidéo : watchlists, progression et rappels au même endroit.",
 	robots: { index: false, follow: false },
 };
 

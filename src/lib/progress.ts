@@ -66,7 +66,7 @@ export type ProgressAction =
   /** Pause dans le film / l'épisode en cours (secondes), ou page du chapitre en cours (manga). */
   | { kind: "pause"; seconds?: number; page?: number }
   | { kind: "clearPause" }
-  /** Épisode en cours vu (série, animé) : passe au suivant, termine l'œuvre après le dernier. */
+  /** Épisode en cours vu (série, anime) : passe au suivant, termine l'œuvre après le dernier. */
   | { kind: "episode"; date?: string }
   /** Chapitre en cours lu (manga). */
   | { kind: "chapter"; date?: string }
@@ -74,7 +74,7 @@ export type ProgressAction =
   | { kind: "position"; season?: number; episode?: number; chapter?: number }
   /** Session de jeu : date, durée, où j'en suis (facultatif). */
   | { kind: "session"; date?: string; minutes?: number; note?: string }
-  /** Œuvre terminée (film vu, série / animé / manga / jeu fini). */
+  /** Œuvre terminée (film vu, série / anime / manga / jeu fini). */
   | { kind: "complete"; date?: string; rating?: number | null; review?: string | null }
   /** Épisode précis coché dans la liste des saisons (série), avec note et critique facultatives. */
   | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
@@ -139,7 +139,7 @@ interface Plan {
   takeFocus: boolean;
   /** Perd le focus (œuvre terminée). */
   dropFocus?: boolean;
-  /** L'œuvre vient d'être terminée (pour passer au film suivant de la saga, à la saison suivante d'un animé…). */
+  /** L'œuvre vient d'être terminée (pour passer au film suivant de la saga, à la saison suivante d'un anime…). */
   completed?: boolean;
   /** Épisodes sautés à cocher aussi (de la position actuelle jusqu'à l'épisode coché), à la même date. */
   bulkEpisodes?: { season: number; episode: number; at: string }[];

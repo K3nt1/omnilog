@@ -6,7 +6,7 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-[calc(100vh-3.5rem)] max-w-2xl flex-col items-center justify-center gap-6 px-4 text-center">
       <h1 className="text-5xl font-bold">Omnilog</h1>
-      <p className="text-white/60">Films, séries, animés, mangas et jeux, au même endroit.</p>
+      <p className="text-white/60">Films, séries, animes, mangas et jeux, au même endroit.</p>
       <div className="flex flex-wrap justify-center gap-3">
         <Link href="/bibliotheque" className="rounded-xl bg-white px-6 py-3 font-medium text-black hover:bg-white/90">
           Ma bibliothèque

@@ -11,6 +11,22 @@ export interface JournalPatch {
   tags?: string[];
 }
 
+/**
+ * Note de l'œuvre = note du visionnage complet le plus récent qui en a une (comme Letterboxd).
+ * Sans aucun visionnage noté, la note actuelle reste (elle peut venir d'un import sans journal).
+ */
+function syncRating(db: D1Database, entryId: number): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE library_entries SET rating = (
+         SELECT rating FROM progress_log WHERE entry_id = ?1 AND kind IN ('movie', 'complete') AND rating IS NOT NULL
+         ORDER BY logged_at DESC, id DESC LIMIT 1)
+       WHERE id = ?1 AND EXISTS (
+         SELECT 1 FROM progress_log WHERE entry_id = ?1 AND kind IN ('movie', 'complete') AND rating IS NOT NULL)`,
+    )
+    .bind(entryId);
+}
+
 /** Ligne du journal à la date choisie (midi UTC, pour rester sur le bon jour quel que soit le fuseau). */
 const atDate = (date: string) => `${date}T12:00:00.000Z`;
 
@@ -23,7 +39,7 @@ export interface AddResult {
 }
 
 /**
- * Ajoute un visionnage complet : film vu (« revu le… »), ou série / animé / manga / jeu refait en entier.
+ * Ajoute un visionnage complet : film vu (« revu le… »), ou série / anime / manga / jeu refait en entier.
  * L'œuvre passe en vue / lue / jouée si elle ne l'était pas (date de fin = date du visionnage s'il en a une),
  * sa pause s'efface et elle quitte le focus. Renvoie null si l'entrée n'existe pas.
  */
@@ -66,6 +82,7 @@ export async function addJournalLine(db: D1Database, entryId: number, patch: Jou
       db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId),
     );
   }
+  statements.push(syncRating(db, entryId));
   await db.batch(statements);
   return { completed: completes, wasFocus: entry.is_focus === 1, type: entry.media_type, externalId: entry.external_id };
 }
@@ -79,14 +96,19 @@ export async function updateJournalLine(db: D1Database, logId: number, patch: Jo
   if (patch.review !== undefined) parts.push(["review = ?", patch.review?.trim() || null]);
   if (patch.tags !== undefined) parts.push(["tags_json = ?", patch.tags.length > 0 ? JSON.stringify(patch.tags) : null]);
   if (parts.length === 0) return true;
-  const result = await db
+  const line = await db
     .prepare(
-      `UPDATE progress_log SET ${parts.map(([sql]) => sql).join(", ")}
-       WHERE id = ? AND entry_id IN (SELECT id FROM library_entries WHERE user_id = ?)`,
+      `SELECT p.entry_id FROM progress_log p JOIN library_entries l ON l.id = p.entry_id WHERE p.id = ? AND l.user_id = ?`,
     )
-    .bind(...parts.map(([, v]) => v), logId, CURRENT_USER_ID)
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+    .bind(logId, CURRENT_USER_ID)
+    .first<{ entry_id: number }>();
+  if (!line) return false;
+  await db.batch([
+    db.prepare(`UPDATE progress_log SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ?`).bind(...parts.map(([, v]) => v), logId),
+    // La note ou la date a pu changer : la note de l'œuvre suit le visionnage noté le plus récent.
+    syncRating(db, line.entry_id),
+  ]);
+  return true;
 }
 
 /**
@@ -104,7 +126,7 @@ export async function deleteJournalLine(db: D1Database, logId: number): Promise<
     .bind(logId, CURRENT_USER_ID)
     .first<{ entry_id: number; kind: string; season: number | null; episode: number | null; media_type: MediaType; status: LibraryStatus }>();
   if (!line) return false;
-  await db.prepare("DELETE FROM progress_log WHERE id = ?").bind(logId).run();
+  await db.batch([db.prepare("DELETE FROM progress_log WHERE id = ?").bind(logId), syncRating(db, line.entry_id)]);
   if (line.media_type === "tv" && line.kind === "episode" && line.season !== null && line.episode !== null) {
     await recomputeTvPosition(db, line.entry_id, line.status);
   }

@@ -92,10 +92,10 @@ const LAST_ACTIVITY = `COALESCE(
   (SELECT MAX(p.logged_at) FROM progress_log p WHERE p.entry_id = l.id),
   l.completed_at, l.started_at, l.created_at)`;
 
-/** Nombre de fois où l'œuvre a été vue / lue / jouée en entier (film vu, série / animé / manga / jeu terminé). */
+/** Nombre de fois où l'œuvre a été vue / lue / jouée en entier (film vu, série / anime / manga / jeu terminé). */
 const COMPLETIONS = `(SELECT COUNT(*) FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('movie', 'complete'))`;
 
-/** « Durée » selon le type : minutes (film, jeu), épisodes (série, animé), chapitres sinon tomes (manga). */
+/** « Durée » selon le type : minutes (film, jeu), épisodes (série, anime), chapitres sinon tomes (manga). */
 const DURATION = `CASE m.type
   WHEN 'movie' THEN m.runtime_minutes
   WHEN 'game' THEN m.runtime_minutes

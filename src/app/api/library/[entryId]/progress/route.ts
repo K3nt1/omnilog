@@ -79,7 +79,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const message = action.kind === "undo" ? "Rien à annuler." : "Œuvre absente de ta bibliothèque.";
       return NextResponse.json({ error: message }, { status: 404 });
     }
-    // Film d'une saga ou saison d'animé terminé alors qu'il était le focus : le focus passe à la suite.
+    // Film d'une saga ou saison d'anime terminé alors qu'il était le focus : le focus passe à la suite.
     const next =
       result.completed && result.wasFocus && result.externalId
         ? await focusNextInSeries(env, result.type, result.externalId)
