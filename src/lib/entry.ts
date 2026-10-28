@@ -257,25 +257,32 @@ export interface EntryPatch {
   completedAt?: string | null;
 }
 
+/** Morceaux du SET pour un changement de statut (dates remplies ou effacées selon le statut). */
+function statusParts(patch: EntryPatch): [sql: string, params: unknown[]][] {
+  if (patch.status === undefined) return [];
+  const parts: [string, unknown[]][] = [["status = ?", [patch.status]]];
+  // Dates remplies automatiquement si elles sont vides (modifiables ensuite).
+  if (patch.status === "completed" && patch.completedAt === undefined) {
+    parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
+  }
+  if (patch.status === "in_progress" && patch.startedAt === undefined) {
+    parts.push(["started_at = COALESCE(started_at, date('now'))", []]);
+  }
+  // Retour dans la watchlist / le backlog : pas encore commencée, donc pas de dates.
+  if (patch.status === "planned") {
+    if (patch.startedAt === undefined) parts.push(["started_at = NULL", []]);
+    if (patch.completedAt === undefined) parts.push(["completed_at = NULL", []]);
+  }
+  return parts;
+}
+
+/** Une œuvre terminée ou abandonnée n'est plus « en ce moment ». */
+const leavesFocus = (status: LibraryStatus | undefined) => status === "completed" || status === "dropped";
+
 /** Applique les modifications ; renvoie false si l'entrée n'existe pas. */
 export async function updateEntry(db: D1Database, entryId: number, patch: EntryPatch): Promise<boolean> {
   // Chaque morceau du SET avec ses paramètres, dans l'ordre des « ? ».
-  const parts: [sql: string, params: unknown[]][] = [];
-  if (patch.status !== undefined) {
-    parts.push(["status = ?", [patch.status]]);
-    // Dates remplies automatiquement si elles sont vides (modifiables ensuite).
-    if (patch.status === "completed" && patch.completedAt === undefined) {
-      parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
-    }
-    if (patch.status === "in_progress" && patch.startedAt === undefined) {
-      parts.push(["started_at = COALESCE(started_at, date('now'))", []]);
-    }
-    // Retour dans la watchlist / le backlog : pas encore commencée, donc pas de dates.
-    if (patch.status === "planned") {
-      if (patch.startedAt === undefined) parts.push(["started_at = NULL", []]);
-      if (patch.completedAt === undefined) parts.push(["completed_at = NULL", []]);
-    }
-  }
+  const parts = statusParts(patch);
   if (patch.isFavorite !== undefined) parts.push(["is_favorite = ?", [patch.isFavorite ? 1 : 0]]);
   if (patch.rating !== undefined) parts.push(["rating = ?", [patch.rating]]);
   if (patch.review !== undefined) parts.push(["review = ?", [patch.review]]);
@@ -286,12 +293,41 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   const update = db
     .prepare(`UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ? AND user_id = ?`)
     .bind(...parts.flatMap(([, params]) => params), entryId, CURRENT_USER_ID);
-  // Une œuvre terminée ou abandonnée n'est plus « en ce moment ».
-  const leavesFocus = patch.status === "completed" || patch.status === "dropped";
   const [result] = await db.batch(
-    leavesFocus ? [update, db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId)] : [update],
+    leavesFocus(patch.status) ? [update, db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId)] : [update],
   );
   return (result.meta.changes ?? 0) > 0;
+}
+
+/** Nombre maximal d'œuvres modifiées d'un coup. */
+export const BULK_MAX = 500;
+
+/**
+ * Sélection multiple : même statut et / ou favori pour plusieurs œuvres, en une requête
+ * (les identifiants passent en un seul paramètre JSON, D1 limitant le nombre de paramètres).
+ * Renvoie le nombre d'œuvres modifiées.
+ */
+export async function bulkUpdateEntries(
+  db: D1Database,
+  entryIds: number[],
+  patch: Pick<EntryPatch, "status" | "isFavorite">,
+): Promise<number> {
+  const parts = statusParts(patch);
+  if (patch.isFavorite !== undefined) parts.push(["is_favorite = ?", [patch.isFavorite ? 1 : 0]]);
+  if (parts.length === 0 || entryIds.length === 0) return 0;
+  const ids = JSON.stringify(entryIds.slice(0, BULK_MAX));
+  const update = db
+    .prepare(
+      `UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")}
+       WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
+    )
+    .bind(...parts.flatMap(([, params]) => params), CURRENT_USER_ID, ids);
+  const statements = [update];
+  if (leavesFocus(patch.status)) {
+    statements.push(db.prepare("DELETE FROM focus WHERE user_id = ? AND entry_id IN (SELECT value FROM json_each(?))").bind(CURRENT_USER_ID, ids));
+  }
+  const [result] = await db.batch(statements);
+  return result.meta.changes ?? 0;
 }
 
 /** Éditeur français d'un manga, saisi à la main (null pour l'effacer). */

@@ -4,6 +4,7 @@ import { CURRENT_USER_ID } from "./library";
 import { groupGenres, rawGenresFor } from "./genres";
 import { normalizeSearch } from "./search-text";
 import {
+  type Facet,
   type LibraryCard,
   type LibraryQuery,
   type SortKey,
@@ -118,8 +119,13 @@ interface Where {
   params: unknown[];
 }
 
-/** Conditions SQL des filtres ; `skip` retire un filtre (pour les compteurs). */
-function buildWhere(q: LibraryQuery, skip?: "type" | "status" | "genre"): Where {
+/** Lignes du journal datées qui comptent comme visionnage / lecture / partie (pas les pauses). */
+const DATED_LOG = "p.undated = 0 AND p.kind <> 'pause'";
+
+type FacetKey = "type" | "status" | "genre" | "year" | "watchYear" | "tag" | "platform";
+
+/** Conditions SQL des filtres ; `skip` retire un filtre (pour les compteurs de ce filtre). */
+function buildWhere(q: LibraryQuery, skip?: FacetKey): Where {
   const clauses = ["l.user_id = ?"];
   const params: unknown[] = [CURRENT_USER_ID];
   if (q.type && skip !== "type") {
@@ -137,6 +143,36 @@ function buildWhere(q: LibraryQuery, skip?: "type" | "status" | "genre"): Where 
       `EXISTS (SELECT 1 FROM json_each(m.extra_json, '$.genres') g WHERE g.value IN (${raws.map(() => "?").join(", ")}))`,
     );
     params.push(...raws);
+  }
+  if (q.decade && skip !== "year") {
+    if (q.year) {
+      clauses.push("substr(m.release_date, 1, 4) = ?");
+      params.push(String(q.year));
+    } else {
+      clauses.push("substr(m.release_date, 1, 3) = ?");
+      params.push(String(q.decade).slice(0, 3));
+    }
+  }
+  if (q.watchYear && skip !== "watchYear") {
+    clauses.push(
+      `(EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND ${DATED_LOG} AND substr(p.logged_at, 1, 4) = ?)
+        OR substr(l.completed_at, 1, 4) = ?)`,
+    );
+    params.push(String(q.watchYear), String(q.watchYear));
+  }
+  if (q.ongoing) clauses.push("m.is_ongoing = 1");
+  if (q.withReview) {
+    clauses.push("(l.review IS NOT NULL OR EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.review IS NOT NULL))");
+  }
+  if (q.tag && skip !== "tag") {
+    clauses.push(
+      "EXISTS (SELECT 1 FROM progress_log p, json_each(p.tags_json) t WHERE p.entry_id = l.id AND t.value = ?)",
+    );
+    params.push(q.tag);
+  }
+  if (q.platform && skip !== "platform") {
+    clauses.push("EXISTS (SELECT 1 FROM json_each(m.extra_json, '$.platforms') pf WHERE pf.value = ?)");
+    params.push(q.platform);
   }
   // Trier par nombre de visionnages n'a d'intérêt que pour les œuvres revues : on n'affiche que celles-là.
   if (q.sort === "visionnages") clauses.push(`${COMPLETIONS} >= 2`);
@@ -165,17 +201,69 @@ export interface LibraryPage {
   typeCounts: Record<MediaType, number>;
   /** Genres présents (en français), avec tous les autres filtres appliqués. */
   genres: { label: string; count: number }[];
+  /** Années de sortie présentes (« 1971 »), pour les menus décennie puis année. */
+  releaseYears: Facet[];
+  /** Années de visionnage présentes, de la plus récente à la plus ancienne. */
+  watchYears: Facet[];
+  /** Tags du journal, du plus utilisé au moins utilisé. */
+  tags: Facet[];
+  /** Plateformes (jeux uniquement). */
+  platforms: Facet[];
 }
 
 const zeroCounts = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>;
 
-/** Une page de la grille : 3 requêtes (compteurs par statut, par type, puis les affiches). */
-export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<LibraryPage> {
+/**
+ * Une page de la grille : un lot de compteurs (statut, type, genre, années, tags, plateformes), puis les affiches.
+ * `pageSize` dépend de l'affichage (petites affiches = plus d'œuvres par page).
+ */
+export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize = PAGE_SIZE): Promise<LibraryPage> {
   const byStatus = buildWhere(q, "status");
   const byType = buildWhere(q, "type");
   const byGenre = buildWhere(q, "genre");
-  const [statusRows, typeRows, genreRows] = await db.batch<{ key: string; n: number }>([
+  const byYear = buildWhere(q, "year");
+  const byWatchYear = buildWhere(q, "watchYear");
+  const byTag = buildWhere(q, "tag");
+  const byPlatform = buildWhere(q, "platform");
+  const facets = [
+    db
+      .prepare(
+        `SELECT substr(m.release_date, 1, 4) AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE ${byYear.sql} AND m.release_date IS NOT NULL GROUP BY key`,
+      )
+      .bind(...byYear.params),
+    db
+      .prepare(
+        `SELECT w.y AS key, COUNT(DISTINCT l.id) AS n
+         FROM library_entries l JOIN media m ON m.id = l.media_id
+         JOIN (SELECT p.entry_id, substr(p.logged_at, 1, 4) AS y FROM progress_log p WHERE ${DATED_LOG}
+               UNION SELECT id, substr(completed_at, 1, 4) FROM library_entries WHERE completed_at IS NOT NULL) w
+           ON w.entry_id = l.id
+         WHERE ${byWatchYear.sql} GROUP BY w.y`,
+      )
+      .bind(...byWatchYear.params),
+    db
+      .prepare(
+        `SELECT t.value AS key, COUNT(DISTINCT l.id) AS n
+         FROM library_entries l JOIN media m ON m.id = l.media_id
+         JOIN progress_log p ON p.entry_id = l.id, json_each(p.tags_json) t
+         WHERE ${byTag.sql} GROUP BY t.value ORDER BY n DESC LIMIT 100`,
+      )
+      .bind(...byTag.params),
+  ];
+  if (q.type === "game") {
+    facets.push(
+      db
+        .prepare(
+          `SELECT pf.value AS key, COUNT(*) AS n
+           FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.platforms') pf
+           WHERE ${byPlatform.sql} GROUP BY pf.value ORDER BY n DESC`,
+        )
+        .bind(...byPlatform.params),
+    );
+  }
+  const [statusRows, typeRows, genreRows, yearRows, watchRows, tagRows, platformRows] = await db.batch<{ key: string; n: number }>([
     db
       .prepare(
         `SELECT l.status AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
@@ -195,6 +283,7 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<L
          WHERE ${byGenre.sql} GROUP BY g.value`,
       )
       .bind(...byGenre.params),
+    ...facets,
   ]);
 
   const statusCounts = zeroCounts(LIBRARY_STATUSES);
@@ -205,7 +294,7 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<L
   const total = q.status
     ? statusCounts[q.status]
     : Object.values(statusCounts).reduce((sum, n) => sum + n, 0);
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const page = Math.min(Math.max(1, q.page), pageCount);
 
   const where = buildWhere(q);
@@ -218,11 +307,25 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery): Promise<L
        ORDER BY ${SORT_SQL[q.sort]} ${direction} NULLS LAST, l.id DESC
        LIMIT ? OFFSET ?`,
     )
-    .bind(...where.params, PAGE_SIZE, (page - 1) * PAGE_SIZE)
+    .bind(...where.params, pageSize, (page - 1) * pageSize)
     .all<CardRow>();
 
   const genres = groupGenres(genreRows.results.map((r) => ({ genre: r.key, n: r.n })));
-  return { cards: results.map(toCard), total, page, pageCount, statusCounts, typeCounts, genres };
+  const toFacets = (rows: { key: string; n: number }[] | undefined) =>
+    (rows ?? []).filter((r) => r.key).map((r) => ({ value: String(r.key), count: r.n }));
+  return {
+    cards: results.map(toCard),
+    total,
+    page,
+    pageCount,
+    statusCounts,
+    typeCounts,
+    genres,
+    releaseYears: toFacets(yearRows.results).sort((a, b) => b.value.localeCompare(a.value)),
+    watchYears: toFacets(watchRows.results).sort((a, b) => b.value.localeCompare(a.value)),
+    tags: toFacets(tagRows.results),
+    platforms: toFacets(platformRows?.results),
+  };
 }
 
 // ---------------------------------------------------------------------

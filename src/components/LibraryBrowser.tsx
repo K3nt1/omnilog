@@ -1,12 +1,20 @@
 import Link from "next/link";
 import type { LibraryPage } from "@/lib/browse";
-import { sortsFor, type LibraryQuery } from "@/lib/browse-shared";
-import { sortDetail, STATUS_ORDER, statusLabel, TYPE_LABELS } from "@/lib/labels";
-import { libraryHref } from "@/lib/library-url";
+import { sortsFor, type LibraryQuery, type ViewPrefs } from "@/lib/browse-shared";
+import { STATUS_ORDER, statusLabel, TYPE_LABELS } from "@/lib/labels";
+import { hasFilters, libraryHref } from "@/lib/library-url";
 import { MEDIA_TYPES, type MediaType } from "@/lib/types";
 import { LibraryControls } from "./LibraryControls";
-import { MediaCard } from "./MediaCard";
+import { LibraryResults } from "./LibraryResults";
 import { Pagination } from "./Pagination";
+
+/** « En diffusion » n'a de sens que pour les séries, anime et mangas. */
+function ongoingLabel(type: MediaType | null): string | null {
+  if (type === "movie" || type === "game") return null;
+  if (type === "manga") return "En cours de publication";
+  if (type === null) return "En diffusion / publication";
+  return "En diffusion";
+}
 
 const DURATION_LABELS: Record<MediaType, string> = {
   movie: "Durée",
@@ -41,14 +49,17 @@ interface Props {
   data: LibraryPage;
   /** Vrai sur /films/liste… : le type est imposé par la page. */
   fixedType: boolean;
+  /** Grille ou liste, taille des affiches (cookie). */
+  prefs: ViewPrefs;
 }
 
 /** Grille filtrable : filtres par type, statut, favoris, note ; recherche ; tri ; pagination. */
-export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
+export function LibraryBrowser({ basePath, query, data, fixedType, prefs }: Props) {
   const href = (change: Partial<LibraryQuery>) => libraryHref(basePath, query, change, fixedType);
   const statusTotal = Object.values(data.statusCounts).reduce((a, b) => a + b, 0);
   const typeTotal = Object.values(data.typeCounts).reduce((a, b) => a + b, 0);
-  const filtered = query.status || query.favorite || query.rating || query.genre || query.search.trim() || (!fixedType && query.type);
+  const filtered = hasFilters(query, fixedType);
+  const ongoing = ongoingLabel(query.type);
 
   return (
     <div className="space-y-4">
@@ -77,6 +88,14 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
         <Chip href={href({ favorite: !query.favorite })} active={query.favorite}>
           <span className="text-rose-400">♥</span> Favoris
         </Chip>
+        {(ongoing || query.ongoing) && (
+          <Chip href={href({ ongoing: !query.ongoing })} active={query.ongoing}>
+            {ongoing ?? "En diffusion"}
+          </Chip>
+        )}
+        <Chip href={href({ withReview: !query.withReview })} active={query.withReview}>
+          ✎ Avec critique
+        </Chip>
       </div>
 
       <LibraryControls
@@ -86,6 +105,10 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
         sorts={sortsFor(query.type)}
         durationLabel={query.type ? DURATION_LABELS[query.type] : "Durée"}
         genres={data.genres}
+        releaseYears={data.releaseYears}
+        watchYears={data.watchYears}
+        tags={data.tags}
+        platforms={data.platforms}
       />
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-white/60">
@@ -116,17 +139,13 @@ export function LibraryBrowser({ basePath, query, data, fixedType }: Props) {
           )}
         </p>
       ) : (
-        <ul className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-          {data.cards.map((card) => (
-            <li key={card.entryId}>
-              <MediaCard
-                card={card}
-                showType={!fixedType && query.type === null}
-                detail={sortDetail(query.sort, card.type, card.sortValue)}
-              />
-            </li>
-          ))}
-        </ul>
+        <LibraryResults
+          cards={data.cards}
+          prefs={prefs}
+          showType={!fixedType && query.type === null}
+          sort={query.sort}
+          type={query.type}
+        />
       )}
 
       <Pagination page={data.page} pageCount={data.pageCount} hrefFor={(page) => href({ page })} />

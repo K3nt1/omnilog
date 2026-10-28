@@ -5,7 +5,7 @@ import { clockLabel, ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@
 import { yearOf } from "@/lib/types";
 
 /** Progression affichée sur l'affiche, seulement pour une œuvre commencée et pas terminée. */
-function progressOf(card: LibraryCard): { label: string; ratio: number | null } | null {
+export function progressOf(card: LibraryCard): { label: string; ratio: number | null } | null {
   if (card.status !== "in_progress" && card.status !== "on_hold" && card.status !== "dropped") return null;
   if (card.type === "tv" && card.currentEpisode !== null) {
     const s = String(card.currentSeason ?? 1).padStart(2, "0");
@@ -30,13 +30,13 @@ function progressOf(card: LibraryCard): { label: string; ratio: number | null } 
   return null;
 }
 
-function pauseOf(card: LibraryCard): string | null {
+export function pauseOf(card: LibraryCard): string | null {
   if (card.pauseSeconds !== null) return `⏸ ${clockLabel(card.pauseSeconds)}`;
   if (card.pausePage !== null) return `⏸ p. ${card.pausePage}`;
   return null;
 }
 
-const STATUS_STYLE: Record<LibraryCard["status"], string> = {
+export const STATUS_STYLE: Record<LibraryCard["status"], string> = {
   planned: "bg-sky-500/80",
   in_progress: "bg-emerald-500/80",
   on_hold: "bg-amber-500/80",
@@ -53,9 +53,12 @@ export function MediaCard({
   showType = false,
   detail = null,
   actions = true,
+  compact = false,
 }: {
   card: LibraryCard;
   showType?: boolean;
+  /** Petites affiches : seulement l'essentiel (pastilles en icônes, pas de titre original). */
+  compact?: boolean;
   /** Bouton « ⋯ » d'actions rapides (♥, +1, focus, statut, note). */
   actions?: boolean;
   /** Ligne d'info sous le titre (date d'ajout, nombre de visionnages… selon le tri). */
@@ -82,6 +85,24 @@ export function MediaCard({
             <div className="flex h-full items-center justify-center p-3 text-center text-sm text-white/50">{card.title}</div>
           )}
 
+          {compact ? (
+            <>
+              <div className="absolute left-1 top-1 flex gap-0.5 text-[10px]">
+                {card.isFocus && <span className="rounded bg-black/70 px-1" title="En ce moment">🎯</span>}
+                {card.isFavorite && <span className="rounded bg-black/70 px-1 text-rose-400" title="Favori">♥</span>}
+              </div>
+              <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/90 to-transparent p-1 pt-4 text-[10px]">
+                <span className={`h-2 w-2 shrink-0 rounded-full ring-1 ring-white/50 ${STATUS_STYLE[card.status]}`} title={statusLabel(card.status, card.type)} />
+                {stars && <span className="text-amber-300">★ {stars}</span>}
+                {progress?.ratio != null && (
+                  <span className="h-1 flex-1 overflow-hidden rounded bg-white/20">
+                    <span className="block h-full bg-emerald-400" style={{ width: `${Math.round(progress.ratio * 100)}%` }} />
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+          <>
           {/* Haut : type, focus, favori */}
           <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-1 p-1.5 text-[11px] sm:text-xs">
             <div className="flex flex-wrap gap-1">
@@ -114,13 +135,20 @@ export function MediaCard({
               </div>
             )}
           </div>
+          </>
+          )}
         </Link>
         {actions && <CardActions card={card} />}
       </div>
-      <Link href={href} className="mt-1.5 line-clamp-2 text-sm font-medium leading-tight hover:underline">
+      <Link
+        href={href}
+        className={`mt-1.5 line-clamp-2 font-medium leading-tight hover:underline ${compact ? "text-xs" : "text-sm"}`}
+      >
         {card.title}
       </Link>
-      <p className="line-clamp-1 text-xs text-white/50">{[year, card.originalTitle].filter(Boolean).join(" · ")}</p>
+      <p className="line-clamp-1 text-xs text-white/50">
+        {compact ? year : [year, card.originalTitle].filter(Boolean).join(" · ")}
+      </p>
       {detail && <p className="mt-0.5 line-clamp-1 text-xs font-medium text-sky-300">{detail}</p>}
     </div>
   );
