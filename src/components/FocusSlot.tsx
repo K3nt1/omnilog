@@ -5,6 +5,7 @@ import type { LibraryCard } from "@/lib/browse-shared";
 import { ficheHref, plannedLabel, positionLine, TYPE_SINGULAR } from "@/lib/labels";
 import type { MediaType } from "@/lib/types";
 import { useAction } from "./useAction";
+import { ReleaseText } from "./ReleaseText";
 
 /** Action principale proposée directement dans le bandeau, selon le type. */
 const QUICK: Record<MediaType, { kind: "episode" | "chapter" | "complete"; label: string } | null> = {
@@ -78,6 +79,7 @@ export function FocusSlot({
           {card.title}
         </Link>
         <p className="mt-0.5 line-clamp-1 text-xs text-sky-300">{positionLine(card)}</p>
+        {card.release && <ReleaseText release={card.release} className="line-clamp-1 text-xs text-violet-300" />}
         <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
           {quick ? (
             <button

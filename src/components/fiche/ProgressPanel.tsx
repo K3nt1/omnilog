@@ -28,10 +28,11 @@ interface Props {
   seasons: SeasonInfo[];
   totalEpisodes: number | null;
   totalChapters: number | null;
+  totalVolumes: number | null;
 }
 
 /** « Ma progression » sur la fiche : avancer, mettre en pause, enregistrer une session, terminer, annuler, focus. */
-export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapters }: Props) {
+export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapters, totalVolumes }: Props) {
   const { run, busy, error } = useAction();
   const url = `/api/library/${entry.id}/progress`;
   const act = (id: string, body: Record<string, unknown>) => run(id, url, body);
@@ -45,6 +46,9 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
   const [season, setSeason] = useState(entry.currentSeason ?? regular[0]?.seasonNumber ?? 1);
   const [episode, setEpisode] = useState(entry.currentEpisode ?? 1);
   const [chapter, setChapter] = useState(entry.currentChapter ?? 1);
+  const [volume, setVolume] = useState(entry.currentVolume ?? 1);
+  // « Cocher un tome entier » : un tome précis (par défaut le tome en cours).
+  const [checkVolume, setCheckVolume] = useState(String(entry.currentVolume ?? 1));
 
   const done = entry.status === "completed";
   const dateField = (
@@ -111,7 +115,39 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
           </button>
           {dateField}
           <button type="button" onClick={() => setEditing((v) => !v)} className="text-xs text-sky-300 hover:underline">
-            {editing ? "Fermer" : type === "manga" ? "Changer de chapitre" : "Changer d'épisode"}
+            {editing ? "Fermer" : type === "manga" ? "Changer de tome / chapitre" : "Changer d'épisode"}
+          </button>
+        </div>
+      )}
+
+      {/* Manga : tome en cours, tome lu (le chapitre suit quand MangaDex connaît le tome). */}
+      {!done && type === "manga" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => act("volume", { kind: "volume", date })}
+            disabled={busy !== null}
+            className={secondary}
+          >
+            {busy === "volume" ? "…" : `✓ Tome ${entry.currentVolume ?? 1}${totalVolumes ? ` / ${totalVolumes}` : ""} lu`}
+          </button>
+          <span className="text-white/50">ou cocher le tome</span>
+          <input
+            type="number"
+            min={1}
+            max={totalVolumes ?? undefined}
+            value={checkVolume}
+            onChange={(e) => setCheckVolume(e.target.value)}
+            className={`${field} w-20`}
+            aria-label="Tome lu"
+          />
+          <button
+            type="button"
+            disabled={busy !== null || !(Number(checkVolume) >= 1)}
+            onClick={() => act("checkVolume", { kind: "volume", volume: Math.floor(Number(checkVolume)), date })}
+            className={secondary}
+          >
+            {busy === "checkVolume" ? "…" : "✓ Lu"}
           </button>
         </div>
       )}
@@ -149,16 +185,28 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
             </label>
           )}
           {type === "manga" && (
-            <label className="flex items-center gap-1">
-              Chapitre
-              <input type="number" min={0} step="any" value={chapter} onChange={(e) => setChapter(Number(e.target.value))} className={`${field} w-28`} />
-            </label>
+            <>
+              <label className="flex items-center gap-1">
+                Tome
+                <input type="number" min={1} max={totalVolumes ?? undefined} value={volume} onChange={(e) => setVolume(Number(e.target.value))} className={`${field} w-20`} />
+              </label>
+              <label className="flex items-center gap-1">
+                Chapitre
+                <input type="number" min={0} step="any" value={chapter} onChange={(e) => setChapter(Number(e.target.value))} className={`${field} w-28`} />
+              </label>
+            </>
           )}
           <button
             type="button"
             disabled={busy !== null}
             onClick={async () => {
-              const ok = await act("position", { kind: "position", season, episode, chapter });
+              const ok = await act("position", {
+                kind: "position",
+                season,
+                episode,
+                chapter,
+                ...(type === "manga" && volume >= 1 ? { volume: Math.floor(volume) } : {}),
+              });
               if (ok) setEditing(false);
             }}
             className={secondary}

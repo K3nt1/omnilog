@@ -67,6 +67,8 @@ export async function importMalItem(env: CloudflareEnv, item: MalImportItem): Pr
       isFavorite: false,
       currentEpisode: item.kind === "anime" ? position : null,
       currentChapter: item.kind === "manga" ? position : null,
+      currentVolume:
+        item.kind === "manga" && item.volumes !== undefined ? nextPosition(item.status, item.volumes, details.totalVolumes) : null,
       startedAt: item.startDate,
       completedAt: item.status === "completed" ? item.finishDate : null,
       addedAt: null, // l'export MAL ne donne pas de date d'ajout

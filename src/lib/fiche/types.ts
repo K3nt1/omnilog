@@ -1,3 +1,4 @@
+import type { ReleaseInfo } from "../release-shared";
 // Fiche d'une œuvre telle qu'affichée sur /oeuvre/… : demandée en direct à la source (TMDB, MAL, IGDB),
 // jamais stockée en base (acteurs, plateformes, œuvres liées… changent et pèseraient des milliers d'écritures).
 import type { MediaType, SeasonInfo } from "../types";
@@ -81,6 +82,8 @@ export interface MediaFiche {
   timeToBeat: { hastily: number | null; normally: number | null; completely: number | null } | null;
   /** Prochain épisode annoncé (séries TMDB) ou jour de diffusion (animes MAL). */
   nextEpisode: { label: string; date: string | null } | null;
+  /** Prochain épisode daté, connu directement par la source (séries TMDB) ; complété ensuite par release.ts. */
+  nextRelease: ReleaseInfo | null;
   providers: FicheProviders | null;
   related: RelatedGroup[];
   links: FicheLink[];

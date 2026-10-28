@@ -22,6 +22,7 @@ function isMalItem(v: unknown): v is MalImportItem {
     isLibraryStatus(i.status) &&
     isNullableNumber(i.score) &&
     typeof i.progress === "number" &&
+    (i.volumes === undefined || typeof i.volumes === "number") &&
     isNullableNumber(i.total) &&
     isNullableString(i.startDate) &&
     isNullableString(i.finishDate)

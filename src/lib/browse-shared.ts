@@ -1,4 +1,5 @@
 // Types et constantes de la bibliothèque, utilisables côté serveur comme côté navigateur.
+import type { ReleaseInfo } from "./release-shared";
 import type { LibraryStatus, MediaType } from "./types";
 
 export const SORT_KEYS = ["activite", "ajout", "note", "titre", "sortie", "fin", "duree", "visionnages"] as const;
@@ -95,6 +96,7 @@ export interface LibraryCard {
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  currentVolume: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;
   totalEpisodes: number | null;
@@ -108,6 +110,8 @@ export interface LibraryCard {
   gameCheckpoint: string | null;
   playtimeMinutes: number | null;
   sessionsCount: number;
+  /** Prochain épisode / dernier chapitre (œuvres en diffusion). */
+  release: ReleaseInfo | null;
 }
 
 /** Tris proposés selon le type affiché (la durée n'a de sens qu'avec un seul type). */
