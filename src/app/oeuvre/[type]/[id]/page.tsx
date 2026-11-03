@@ -456,7 +456,13 @@ export default async function FichePage({ params }: Props) {
           </Section>
         )}
 
-        <Journal lines={stored.journal} type={type} entryId={entry?.id ?? null} titles={[f.title, f.originalTitle]} />
+        <Journal
+          lines={stored.journal}
+          type={type}
+          entryId={entry?.id ?? null}
+          titles={[f.title, f.originalTitle]}
+          knownTags={stored.knownTags}
+        />
 
         {f.related.map((group) => (
           <Section key={group.title} title={group.title}>
