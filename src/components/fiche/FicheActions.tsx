@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SearchResult } from "@/lib/types";
@@ -446,9 +447,9 @@ function ReminderDialog({ entryId, title, onClose }: { entryId: number; title: s
           <p className="text-emerald-300">Rappel créé. Il apparaîtra sur la page Aujourd&apos;hui et en notification à son heure.</p>
           <p className="text-white/60">
             Tu peux le modifier ou l&apos;essayer dans{" "}
-            <a href="/reglages" className="underline">
+            <Link href="/reglages" className="underline">
               Réglages
-            </a>
+            </Link>
             .
           </p>
         </div>
