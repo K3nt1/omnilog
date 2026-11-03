@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { JournalLine } from "@/lib/entry";
 import { dateLabel, durationLabel, episodeName, starsLabel } from "@/lib/labels";
@@ -7,6 +8,7 @@ import type { MediaType } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { useAction } from "../useAction";
 import { StarRating } from "./StarRating";
+import { TagInput } from "./TagInput";
 
 const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué" };
 const AGAIN: Record<MediaType, string> = { movie: "revu", tv: "revue", anime: "revu", manga: "relu", game: "rejoué" };
@@ -33,7 +35,9 @@ function LineForm({
   busy,
   onSubmit,
   onCancel,
+  knownTags,
 }: {
+  knownTags: string[];
   initial: { date: string; rating: number | null; review: string; tags: string[] };
   submitLabel: string;
   busy: boolean;
@@ -44,7 +48,7 @@ function LineForm({
   const [date, setDate] = useState(initial.date);
   const [rating, setRating] = useState(initial.rating);
   const [review, setReview] = useState(initial.review);
-  const [tags, setTags] = useState(initial.tags.join(", "));
+  const [tags, setTags] = useState(initial.tags);
   return (
     <div className="space-y-2 rounded-lg bg-black/30 p-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -65,7 +69,7 @@ function LineForm({
         placeholder="Critique (facultatif)"
         className={`${field} block w-full`}
       />
-      <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Tags, séparés par des virgules (vo, cinéma…)" className={`${field} w-full`} />
+      <TagInput value={tags} onChange={setTags} known={knownTags} />
       <div className="flex gap-2">
         <button
           type="button"
@@ -75,7 +79,7 @@ function LineForm({
               date: date || null,
               rating,
               review: review.trim() || null,
-              tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+              tags,
             })
           }
           className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
@@ -96,11 +100,14 @@ export function Journal({
   type,
   entryId,
   titles,
+  knownTags = [],
 }: {
   lines: JournalLine[];
   type: MediaType;
   entryId: number | null;
   titles: (string | null)[];
+  /** Tes tags existants, proposés à la saisie. */
+  knownTags?: string[];
 }) {
   const { run, busy, error } = useAction();
   const [adding, setAdding] = useState(false);
@@ -123,6 +130,7 @@ export function Journal({
           <LineForm
             initial={{ date: today, rating: null, review: "", tags: [] }}
             submitLabel={type === "movie" ? "Ajouter au journal" : `Ajouter (${AGAIN[type]} le…)`}
+            knownTags={knownTags}
             busy={busy === "add"}
             onSubmit={async (v) => {
               if (await run("add", `/api/library/${entryId}/journal`, v)) setAdding(false);
@@ -167,6 +175,7 @@ export function Journal({
                   <LineForm
                     initial={{ date: line.undated ? "" : line.at.slice(0, 10), rating: line.rating, review: line.review ? htmlToPlain(line.review) : "", tags: line.tags }}
                     submitLabel="Enregistrer"
+                    knownTags={knownTags}
                     busy={busy === `edit-${line.id}`}
                     onSubmit={async (v) => {
                       if (await run(`edit-${line.id}`, `/api/journal/${line.id}`, v, "PATCH")) setEditing(null);
@@ -180,8 +189,14 @@ export function Journal({
                     {line.tags.length > 0 && (
                       <ul className="flex flex-wrap gap-1.5">
                         {line.tags.map((t) => (
-                          <li key={t} className="rounded bg-white/10 px-1.5 py-0.5 text-xs text-white/70">
-                            #{t}
+                          <li key={t}>
+                            <Link
+                              href={`/bibliotheque?tag=${encodeURIComponent(t)}`}
+                              title={`Toutes les œuvres avec #${t}`}
+                              className="block rounded bg-white/10 px-1.5 py-0.5 text-xs text-white/70 hover:bg-white/20 hover:text-white"
+                            >
+                              #{t}
+                            </Link>
                           </li>
                         ))}
                       </ul>

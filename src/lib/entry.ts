@@ -76,6 +76,8 @@ export interface StoredFiche {
   entry: LibraryEntry | null;
   journal: JournalLine[];
   watchRegion: string;
+  /** Tous tes tags du journal, du plus utilisé au moins utilisé (suggestions à la saisie). */
+  knownTags: string[];
 }
 
 /** Ligne renvoyée par la requête œuvre + suivi (colonnes de media, puis celles de library_entries). */
@@ -149,7 +151,7 @@ const parseJson = <T,>(value: string | null, fallback: T): T => {
 /** Tout ce que la base sait d'une œuvre, en un seul aller-retour (3 requêtes). */
 export async function getStoredFiche(db: D1Database, type: MediaType, externalId: string): Promise<StoredFiche> {
   const source = SOURCE_FOR_TYPE[type];
-  const [mediaRows, journalRows, userRows] = await db.batch<Record<string, unknown>>([
+  const [mediaRows, journalRows, userRows, tagRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
         `SELECT m.*, l.id AS entry_id, l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
@@ -172,6 +174,14 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
       )
       .bind(CURRENT_USER_ID, type, source, externalId),
     db.prepare("SELECT watch_region FROM users WHERE id = ?").bind(CURRENT_USER_ID),
+    db
+      .prepare(
+        `SELECT t.value AS tag, COUNT(*) AS n
+         FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
+         WHERE l.user_id = ? AND p.tags_json IS NOT NULL
+         GROUP BY t.value ORDER BY n DESC, t.value LIMIT 500`,
+      )
+      .bind(CURRENT_USER_ID),
   ]);
 
   const row = mediaRows.results[0] as unknown as MediaRow | undefined;
@@ -241,7 +251,8 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
   }));
 
   const region = (userRows.results[0] as { watch_region?: string } | undefined)?.watch_region ?? "FR";
-  return { media, entry, journal, watchRegion: region };
+  const knownTags = (tagRows.results as { tag: string }[]).map((r) => String(r.tag));
+  return { media, entry, journal, watchRegion: region, knownTags };
 }
 
 /** Statut dans ta bibliothèque des œuvres liées affichées sur la fiche (« Vu », « À voir »…). */
