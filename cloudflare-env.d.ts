@@ -10,6 +10,8 @@ interface __BaseEnv_CloudflareEnv {
 	IGDB_CLIENT_ID: string;
 	IGDB_CLIENT_SECRET: string;
 	MAL_CLIENT_ID: string;
+	VAPID_PUBLIC_KEY: string;
+	VAPID_PRIVATE_KEY: string;
 	WORKER_SELF_REFERENCE: Fetcher /* omnilog-staging */ | Service<typeof import("./.open-next/worker").default>;
 }
 declare namespace Cloudflare {
@@ -25,6 +27,8 @@ declare namespace Cloudflare {
 		IGDB_CLIENT_ID: string;
 		IGDB_CLIENT_SECRET: string;
 		MAL_CLIENT_ID: string;
+		VAPID_PUBLIC_KEY: string;
+		VAPID_PRIVATE_KEY: string;
 		WORKER_SELF_REFERENCE: Fetcher /* omnilog-staging */;
 	}
 	interface Env extends __BaseEnv_CloudflareEnv {}
@@ -34,7 +38,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "NEXTJS_ENV" | "TMDB_API_TOKEN" | "IGDB_CLIENT_ID" | "IGDB_CLIENT_SECRET" | "MAL_CLIENT_ID">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "NEXTJS_ENV" | "TMDB_API_TOKEN" | "IGDB_CLIENT_ID" | "IGDB_CLIENT_SECRET" | "MAL_CLIENT_ID" | "VAPID_PUBLIC_KEY" | "VAPID_PRIVATE_KEY">> {}
 }
 declare module "*.txt" {
 	const value: string;
