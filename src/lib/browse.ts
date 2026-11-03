@@ -499,3 +499,7 @@ export async function getFocusOverview(db: D1Database, type: MediaType | null = 
   for (const row of plannedRows.results as { key: MediaType; n: number }[]) plannedCounts[row.key] = row.n;
   return { cards, plannedCounts };
 }
+
+/** Colonnes d'une vignette et conversion d'une ligne, pour d'autres pages (Aujourd'hui). */
+export const CARD_COLUMNS_SQL = CARD_COLUMNS;
+export const cardFromRow = (row: Record<string, unknown>): LibraryCard => toCard(row as unknown as CardRow);

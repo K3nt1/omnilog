@@ -6,6 +6,7 @@ import { TYPE_LABELS, TYPE_SLUGS } from "@/lib/labels";
 import { MEDIA_TYPES } from "@/lib/types";
 
 const LINKS = [
+  { href: "/aujourdhui", label: "Aujourd'hui" },
   { href: "/bibliotheque", label: "Bibliothèque" },
   ...MEDIA_TYPES.map((t) => ({ href: `/${TYPE_SLUGS[t]}`, label: TYPE_LABELS[t] })),
 ];
@@ -13,6 +14,7 @@ const LINKS = [
 const TOOLS = [
   { href: "/recherche", label: "Rechercher" },
   { href: "/import", label: "Importer" },
+  { href: "/reglages", label: "Réglages" },
 ];
 
 /** Barre de navigation en haut de chaque page ; défile horizontalement sur mobile. */

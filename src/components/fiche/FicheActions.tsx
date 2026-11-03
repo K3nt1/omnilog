@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SearchResult } from "@/lib/types";
 import type { MediaType } from "@/lib/types";
+import { DaysPicker } from "../settings/RemindersEditor";
 import { useAction } from "../useAction";
 
 const button = "rounded-lg bg-white/5 px-3 py-1.5 text-xs text-white/70 ring-1 ring-white/10 hover:bg-white/10 hover:text-white disabled:opacity-50";
@@ -30,7 +32,7 @@ interface Props {
 export function FicheActions({ type, slug, externalId, title, entry, journalCount, sourcePoster, sourceBackdrop }: Props) {
   const router = useRouter();
   const { run, busy, error } = useAction();
-  const [dialog, setDialog] = useState<"images" | "rematch" | null>(null);
+  const [dialog, setDialog] = useState<"images" | "rematch" | "reminder" | null>(null);
 
   return (
     <div className="space-y-2">
@@ -46,6 +48,9 @@ export function FicheActions({ type, slug, externalId, title, entry, journalCoun
         </button>
         {entry && (
           <>
+            <button type="button" onClick={() => setDialog("reminder")} className={button}>
+              ⏰ Rappel
+            </button>
             <button type="button" onClick={() => setDialog("images")} className={button}>
               🖼 Affiche et fond
             </button>
@@ -79,6 +84,7 @@ export function FicheActions({ type, slug, externalId, title, entry, journalCoun
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === "reminder" && entry && <ReminderDialog entryId={entry.id} title={title} onClose={() => setDialog(null)} />}
       {dialog === "rematch" && entry && (
         <RematchDialog
           type={type}
@@ -422,6 +428,60 @@ function RematchDialog({
             </li>
           ))}
         </ul>
+      )}
+    </Modal>
+  );
+}
+
+/** Rappel sur cette œuvre : « One Piece le dimanche à 18 h » (géré ensuite dans Réglages). */
+function ReminderDialog({ entryId, title, onClose }: { entryId: number; title: string; onClose: () => void }) {
+  const { run, busy, error } = useAction();
+  const [label, setLabel] = useState("");
+  const [time, setTime] = useState("18:00");
+  const [days, setDays] = useState(64);
+  const [done, setDone] = useState(false);
+  return (
+    <Modal title={`Rappel : ${title}`} onClose={onClose}>
+      {done ? (
+        <div className="space-y-3 text-sm">
+          <p className="text-emerald-300">Rappel créé. Il apparaîtra sur la page Aujourd&apos;hui et en notification à son heure.</p>
+          <p className="text-white/60">
+            Tu peux le modifier ou l&apos;essayer dans{" "}
+            <Link href="/reglages" className="underline">
+              Réglages
+            </Link>
+            .
+          </p>
+        </div>
+      ) : (
+        <form
+          className="space-y-3 text-sm"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await run("add", "/api/reminders", { kind: "media", entryId, label: label.trim() || null, timeOfDay: time, daysOfWeek: days })) setDone(true);
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required className={field} aria-label="Heure" />
+            <DaysPicker value={days} onChange={setDays} />
+          </div>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Nom (facultatif) : « Nouvel épisode », « Bonus de connexion »…"
+            maxLength={120}
+            className={`${field} w-full`}
+          />
+          <div className="flex items-center justify-end gap-2">
+            {error && <p className="mr-auto text-rose-400">{error}</p>}
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-white/60 hover:text-white">
+              Annuler
+            </button>
+            <button type="submit" disabled={busy !== null} className="rounded-lg bg-white px-4 py-1.5 font-medium text-black hover:bg-white/90 disabled:opacity-50">
+              {busy === "add" ? "…" : "Créer le rappel"}
+            </button>
+          </div>
+        </form>
       )}
     </Modal>
   );
