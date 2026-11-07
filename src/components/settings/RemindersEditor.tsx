@@ -14,7 +14,7 @@ const small = "rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20 disabl
 /** Choix des jours : sept cases (lun → dim). */
 export function DaysPicker({ value, onChange }: { value: number; onChange: (mask: number) => void }) {
   return (
-    <div className="flex gap-1" role="group" aria-label="Jours">
+    <div className="grid w-full max-w-sm grid-cols-7 gap-1" role="group" aria-label="Jours">
       {DAY_LABELS.map(([bit, label]) => {
         const on = (value & bit) !== 0;
         return (
@@ -23,7 +23,7 @@ export function DaysPicker({ value, onChange }: { value: number; onChange: (mask
             type="button"
             aria-pressed={on}
             onClick={() => onChange(on && value !== bit ? value & ~bit : value | bit)}
-            className={`w-10 rounded-md py-1 text-xs ${on ? "bg-white text-black" : "bg-white/10 text-white/60 hover:bg-white/20"}`}
+            className={`min-w-0 rounded-md py-1 text-xs ${on ? "bg-white text-black" : "bg-white/10 text-white/60 hover:bg-white/20"}`}
           >
             {label}
           </button>
