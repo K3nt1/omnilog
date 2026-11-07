@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/K3nt1/omnilog/compare/v0.7.1...v0.7.2) (2026-11-07)
+
+
+### 🐛 Corrections
+
+* **app:** manifeste téléchargé avec le cookie Cloudflare Access ([#65](https://github.com/K3nt1/omnilog/issues/65)) ([015bd0e](https://github.com/K3nt1/omnilog/commit/015bd0e4afd6bd45b853bac859b07014cc89eaa5))
+
 ## [0.7.1](https://github.com/K3nt1/omnilog/compare/v0.7.0...v0.7.1) (2026-11-07)
 
 
