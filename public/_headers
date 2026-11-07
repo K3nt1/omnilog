@@ -2,3 +2,8 @@
 # https://opennext.js.org/cloudflare/caching#static-assets-caching
 /_next/static/*
   Cache-Control: public,max-age=31536000,immutable
+
+# Service worker : toujours la dernière version (sinon le navigateur peut garder l'ancienne jusqu'à 24 h).
+/sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /

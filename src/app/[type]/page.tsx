@@ -4,8 +4,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MediaCard } from "@/components/MediaCard";
 import { FocusBanner } from "@/components/FocusBanner";
+import { NewsList } from "@/components/NewsList";
 import { getFocusOverview, getTypeOverview, type ActivityItem } from "@/lib/browse";
 import type { LibraryCard } from "@/lib/browse-shared";
+import { listNews } from "@/lib/news";
 import {
   dateLabel,
   durationLabel,
@@ -92,7 +94,11 @@ export default async function TypePage({ params }: Props) {
   const type = typeFromSlug((await params).type);
   if (!type) notFound();
   const { env } = getCloudflareContext();
-  const [overview, focus] = await Promise.all([getTypeOverview(env.DB, type), getFocusOverview(env.DB, type)]);
+  const [overview, focus, news] = await Promise.all([
+    getTypeOverview(env.DB, type),
+    getFocusOverview(env.DB, type),
+    listNews(env.DB, { type, unseenOnly: true, limit: 8 }),
+  ]);
   const base = `/${TYPE_SLUGS[type]}`;
   const total = Object.values(overview.statusCounts).reduce((a, b) => a + b, 0);
   const listHref = (status: LibraryStatus | null, favorite = false) => {
@@ -147,6 +153,18 @@ export default async function TypePage({ params }: Props) {
       ) : (
         <>
           <FocusBanner overview={focus} type={type} />
+
+          {news.length > 0 && (
+            <section>
+              <div className="mb-3 flex items-baseline justify-between gap-3">
+                <h2 className="text-xl font-semibold">Nouveautés</h2>
+                <Link href="/aujourdhui" className="text-sm text-white/60 hover:text-white">
+                  Toutes les nouveautés →
+                </Link>
+              </div>
+              <NewsList key={news.map((n) => n.id).join(",")} items={news} showType={false} />
+            </section>
+          )}
 
           {overview.activity.length > 0 && (
             <section>

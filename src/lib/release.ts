@@ -6,7 +6,9 @@
 import type { MediaFiche } from "./fiche/types";
 import { fetchJson } from "./sources/http";
 import { findMangadexId, latestChapter, mangadexIdFromLink, mangadexLink } from "./sources/mangadex";
-import type { ReleaseInfo } from "./release-shared";
+import { releaseNews, seasonNews, type NewsState } from "./news";
+import { parseRelease, type ReleaseInfo } from "./release-shared";
+import { tmdbGet } from "./sources/tmdb";
 import type { MediaType } from "./types";
 
 const MANGA_RECHECK_MS = 12 * 3600_000;
@@ -27,21 +29,25 @@ export async function mangadexIdFor(
 }
 
 interface AniListResponse {
-  data?: { Media?: { nextAiringEpisode?: { episode: number; airingAt: number } | null } | null };
+  data?: { Media?: { status?: string; nextAiringEpisode?: { episode: number; airingAt: number } | null } | null };
 }
 
-/** Prochain épisode d'un anime (numéro, heure exacte) d'après AniList, à partir de l'identifiant MyAnimeList. */
-async function aniListNext(malId: string): Promise<ReleaseInfo | null> {
+/** Diffusion d'un anime d'après AniList : encore en cours ? prochain épisode (numéro, heure exacte) ? */
+export async function aniListAiring(malId: string): Promise<{ ongoing: boolean; next: ReleaseInfo | null }> {
   const data = await fetchJson<AniListResponse>("AniList", "https://graphql.anilist.co", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
-      query: "query ($id: Int) { Media(idMal: $id, type: ANIME) { nextAiringEpisode { episode airingAt } } }",
+      query: "query ($id: Int) { Media(idMal: $id, type: ANIME) { status nextAiringEpisode { episode airingAt } } }",
       variables: { id: Number(malId) },
     }),
   });
-  const next = data.data?.Media?.nextAiringEpisode;
-  return next ? { kind: "next", label: `Ép. ${next.episode}`, at: new Date(next.airingAt * 1000).toISOString(), precision: "time" } : null;
+  const media = data.data?.Media;
+  const next = media?.nextAiringEpisode;
+  return {
+    ongoing: media?.status !== "FINISHED" && media?.status !== "CANCELLED",
+    next: next ? { kind: "next", label: `Ép. ${next.episode}`, at: new Date(next.airingAt * 1000).toISOString(), precision: "time" } : null,
+  };
 }
 
 const sameRelease = (a: ReleaseInfo | null, b: ReleaseInfo | null) =>
@@ -71,7 +77,7 @@ export async function refreshRelease(
   try {
     if (!fiche.isOngoing || type === "movie" || type === "game") next = null;
     else if (type === "tv") next = fiche.nextRelease;
-    else if (type === "anime") next = await aniListNext(media.externalId);
+    else if (type === "anime") next = fiche.nextRelease ?? (await aniListAiring(media.externalId)).next;
     else {
       const checked = media.release?.checkedAt ? Date.parse(media.release.checkedAt) : 0;
       if (!force && Date.now() - checked < MANGA_RECHECK_MS) return media.release?.label ? media.release : null;
@@ -87,9 +93,105 @@ export async function refreshRelease(
   }
   // Manga : on garde la date de vérification même quand rien ne change, pour ne pas redemander à chaque visite.
   if (!sameRelease(next, media.release) || (type === "manga" && next !== null)) {
-    await env.DB.prepare("UPDATE media SET release_json = ? WHERE id = ?")
-      .bind(next ? JSON.stringify(next) : null, media.id)
-      .run();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE media SET release_json = ? WHERE id = ?").bind(next ? JSON.stringify(next) : null, media.id),
+      // Épisode annoncé désormais sorti, nouveau chapitre paru : nouveautés.
+      ...releaseNews(env.DB, media.id, media.release, next),
+    ]);
   }
   return next && next.label ? next : null;
+}
+
+interface TmdbTvAiring {
+  in_production: boolean;
+  number_of_seasons: number;
+  next_episode_to_air: { air_date: string; season_number: number; episode_number: number } | null;
+}
+
+/** Prochain épisode d'une série d'après TMDB (requête légère, sans crédits ni plateformes). */
+async function tmdbTvAiring(token: string, id: string): Promise<Pick<MediaFiche, "isOngoing" | "nextRelease"> & { raw: TmdbTvAiring }> {
+  const s = await tmdbGet<TmdbTvAiring>(token, `/tv/${Number(id)}`);
+  const next = s.next_episode_to_air;
+  return {
+    raw: s,
+    isOngoing: s.in_production,
+    nextRelease:
+      next && next.air_date
+        ? {
+            kind: "next",
+            label: `S${String(next.season_number).padStart(2, "0")}E${String(next.episode_number).padStart(2, "0")}`,
+            at: next.air_date,
+            precision: "day",
+          }
+        : null,
+  };
+}
+
+/**
+ * Rafraîchissement automatique (tâche programmée) : les œuvres en diffusion de la bibliothèque
+ * les moins récemment vérifiées. Au plus `limit` œuvres, pour rester sous les 50 appels sortants
+ * d'une exécution (un manga peut en demander 3). Renvoie le nombre d'œuvres vérifiées.
+ */
+export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT m.id, m.type, m.external_id, m.title, m.original_title, m.external_links_json, m.release_json, m.news_state_json
+     FROM media m
+     WHERE m.is_ongoing = 1 AND m.type IN ('tv', 'anime', 'manga') AND m.external_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM library_entries l WHERE l.media_id = m.id AND l.status <> 'dropped')
+       AND (m.release_checked_at IS NULL OR m.release_checked_at < ?1
+            -- Épisode annoncé désormais sorti : revérifié chaque heure jusqu'à ce que la source annonce le suivant.
+            OR (json_extract(m.release_json, '$.kind') = 'next' AND json_extract(m.release_json, '$.at') <= ?2 AND m.release_checked_at < ?3))
+     ORDER BY m.release_checked_at IS NOT NULL, m.release_checked_at
+     LIMIT ?4`,
+  )
+    .bind(
+      new Date(Date.now() - 20 * 3600_000).toISOString(),
+      new Date().toISOString(),
+      new Date(Date.now() - 50 * 60_000).toISOString(),
+      limit,
+    )
+    .all<{
+      id: number;
+      type: MediaType;
+      external_id: string;
+      title: string;
+      original_title: string | null;
+      external_links_json: string | null;
+      release_json: string | null;
+      news_state_json: string | null;
+    }>();
+  for (const row of results) {
+    const media: ReleaseMedia = {
+      id: row.id,
+      externalId: row.external_id,
+      title: row.title,
+      originalTitle: row.original_title,
+      externalLinks: row.external_links_json ? (JSON.parse(row.external_links_json) as Record<string, string>) : {},
+      release: parseRelease(row.release_json),
+    };
+    try {
+      const tv = row.type === "tv" ? await tmdbTvAiring(env.TMDB_API_TOKEN, row.external_id) : null;
+      if (tv) {
+        // Nouvelle saison annoncée pendant la diffusion (les séries terminées sont vérifiées par news.ts).
+        const state = row.news_state_json ? (JSON.parse(row.news_state_json) as NewsState) : {};
+        const seasons = seasonNews(env.DB, { id: row.id, state }, tv.raw.number_of_seasons, tv.raw.next_episode_to_air);
+        await env.DB.batch([
+          ...seasons.statements,
+          env.DB.prepare("UPDATE media SET news_state_json = ? WHERE id = ?").bind(JSON.stringify(seasons.state), row.id),
+        ]);
+      }
+      const fiche =
+        tv
+          ? tv
+          : row.type === "anime"
+            ? await aniListAiring(row.external_id).then((a) => ({ isOngoing: a.ongoing, nextRelease: a.next }))
+            : { isOngoing: true, nextRelease: null };
+      if (!fiche.isOngoing) await env.DB.prepare("UPDATE media SET is_ongoing = 0 WHERE id = ?").bind(row.id).run();
+      await refreshRelease(env, row.type, media, fiche, true);
+    } catch (error) {
+      console.error("Rafraîchissement automatique en échec", row.type, row.external_id, error);
+    }
+    await env.DB.prepare("UPDATE media SET release_checked_at = ? WHERE id = ?").bind(new Date().toISOString(), row.id).run();
+  }
+  return results.length;
 }

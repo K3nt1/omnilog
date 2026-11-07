@@ -5,7 +5,8 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "omnilog",
-	"main": ".open-next/worker.js",
+	// Site OpenNext + tâche programmée (rappels, prochaines sorties) : voir custom-worker.ts.
+	"main": "custom-worker.ts",
 	"compatibility_date": "2026-10-06",
 	"compatibility_flags": ["global_fetch_strictly_public"],
 	"assets": {
@@ -14,6 +15,10 @@
 	},
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
+
+	// Tâche programmée toutes les 15 minutes (heure UTC ; les rappels utilisent ton fuseau).
+	// Plan gratuit : 5 tâches programmées par compte (une ici, une pour le staging).
+	"triggers": { "crons": ["*/15 * * * *"] },
 
 	// ---------- PRODUCTION ----------
 	"images": { "binding": "IMAGES" },
@@ -34,6 +39,7 @@
 	"env": {
 		"staging": {
 			"name": "omnilog-staging",
+			"triggers": { "crons": ["*/15 * * * *"] },
 			"images": { "binding": "IMAGES" },
 			"services": [
 				{ "binding": "WORKER_SELF_REFERENCE", "service": "omnilog-staging" }
