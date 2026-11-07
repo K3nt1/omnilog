@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/K3nt1/omnilog/compare/v0.7.0...v0.7.1) (2026-11-07)
+
+
+### 🐛 Corrections
+
+* **app:** invitation à installer gardée dès le chargement, jours des rappels sans débordement ([#61](https://github.com/K3nt1/omnilog/issues/61)) ([a3cf6b6](https://github.com/K3nt1/omnilog/commit/a3cf6b6f2a1b37986b074a12dd2eb7b4d5a7d9a0))
+
 ## [0.7.0](https://github.com/K3nt1/omnilog/compare/v0.6.0...v0.7.0) (2026-11-07)
 
 
