@@ -26,6 +26,9 @@ export const metadata: Metadata = {
 	icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
+const INSTALL_PROMPT_SCRIPT =
+	"window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__omnilogInstall=e;window.dispatchEvent(new Event('omnilog:installable'));});";
+
 export const viewport: Viewport = {
 	themeColor: "#0a0a0a",
 };
@@ -39,6 +42,8 @@ export default function RootLayout({
 		<html lang="fr">
 			<head>
 				<link rel="icon" href="/favicon.svg" type="image/svg+xml"></link>
+				{/* Chrome peut proposer l'installation avant que React ne démarre : on garde l'invitation dès le début. */}
+				<script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_SCRIPT }} />
 			</head>
 			<body className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-neutral-950 text-white antialiased`}>
 				<AppSetup />

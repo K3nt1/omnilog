@@ -55,6 +55,15 @@ function useInstallable(): boolean {
   );
 }
 
+/** « ios » ou « other », lu dans le navigateur ; null côté serveur. */
+function usePlatform(): "ios" | "other" | null {
+  return useSyncExternalStore(
+    () => () => undefined,
+    () => (isIos() ? "ios" : "other"),
+    () => null,
+  );
+}
+
 /** Installer l'app et activer les notifications sur cet appareil. */
 export function NotificationsCard() {
   const [state, setState] = useState<State>("loading");
@@ -62,6 +71,7 @@ export function NotificationsCard() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const installed = useInstalled();
   const installable = useInstallable();
+  const platform = usePlatform();
 
   useEffect(() => {
     // État de cet appareil, lu une fois au chargement (après une attente : aucun changement d'état synchrone ici).
@@ -161,6 +171,18 @@ export function NotificationsCard() {
         </div>
       )}
       {installed && <p className="text-white/60">✓ Tu utilises l&apos;app installée.</p>}
+      {/* Pas d'invitation de Chrome (déjà proposée et refusée, ou pas encore prête) : le menu du navigateur marche toujours. */}
+      {!installed && !installable && platform === "other" && (
+        <p className="text-white/60">
+          📲 Pour installer l&apos;app : menu <strong>⋮</strong> du navigateur → <strong>Installer l&apos;application</strong> (ou{" "}
+          <strong>Ajouter à l&apos;écran d&apos;accueil</strong>).
+        </p>
+      )}
+      {!installed && platform === "ios" && state !== "ios-install" && (
+        <p className="text-white/60">
+          📲 Pour installer l&apos;app : dans Safari, <strong>Partager</strong> → <strong>Sur l&apos;écran d&apos;accueil</strong>.
+        </p>
+      )}
 
       {state === "loading" && <p className="text-white/50">Vérification…</p>}
       {state === "unsupported" && <p className="text-white/60">Ce navigateur ne gère pas les notifications web.</p>}
