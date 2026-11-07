@@ -42,6 +42,11 @@ export default function RootLayout({
 		<html lang="fr">
 			<head>
 				<link rel="icon" href="/favicon.svg" type="image/svg+xml"></link>
+				{/*
+				  Manifeste de l'app installable (public/manifest.webmanifest). Le navigateur le télécharge sans cookies par défaut :
+				  derrière Cloudflare Access, il tombait sur la page de connexion. « use-credentials » envoie le cookie d'Access.
+				*/}
+				<link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
 				{/* Chrome peut proposer l'installation avant que React ne démarre : on garde l'invitation dès le début. */}
 				<script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_SCRIPT }} />
 			</head>
