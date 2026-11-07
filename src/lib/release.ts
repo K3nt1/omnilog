@@ -6,6 +6,7 @@
 import type { MediaFiche } from "./fiche/types";
 import { fetchJson } from "./sources/http";
 import { findMangadexId, latestChapter, mangadexIdFromLink, mangadexLink } from "./sources/mangadex";
+import { releaseNews, seasonNews, type NewsState } from "./news";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
 import { tmdbGet } from "./sources/tmdb";
 import type { MediaType } from "./types";
@@ -92,23 +93,27 @@ export async function refreshRelease(
   }
   // Manga : on garde la date de vérification même quand rien ne change, pour ne pas redemander à chaque visite.
   if (!sameRelease(next, media.release) || (type === "manga" && next !== null)) {
-    await env.DB.prepare("UPDATE media SET release_json = ? WHERE id = ?")
-      .bind(next ? JSON.stringify(next) : null, media.id)
-      .run();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE media SET release_json = ? WHERE id = ?").bind(next ? JSON.stringify(next) : null, media.id),
+      // Épisode annoncé désormais sorti, nouveau chapitre paru : nouveautés.
+      ...releaseNews(env.DB, media.id, media.release, next),
+    ]);
   }
   return next && next.label ? next : null;
 }
 
 interface TmdbTvAiring {
   in_production: boolean;
+  number_of_seasons: number;
   next_episode_to_air: { air_date: string; season_number: number; episode_number: number } | null;
 }
 
 /** Prochain épisode d'une série d'après TMDB (requête légère, sans crédits ni plateformes). */
-async function tmdbTvAiring(token: string, id: string): Promise<Pick<MediaFiche, "isOngoing" | "nextRelease">> {
+async function tmdbTvAiring(token: string, id: string): Promise<Pick<MediaFiche, "isOngoing" | "nextRelease"> & { raw: TmdbTvAiring }> {
   const s = await tmdbGet<TmdbTvAiring>(token, `/tv/${Number(id)}`);
   const next = s.next_episode_to_air;
   return {
+    raw: s,
     isOngoing: s.in_production,
     nextRelease:
       next && next.air_date
@@ -129,15 +134,22 @@ async function tmdbTvAiring(token: string, id: string): Promise<Pick<MediaFiche,
  */
 export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise<number> {
   const { results } = await env.DB.prepare(
-    `SELECT m.id, m.type, m.external_id, m.title, m.original_title, m.external_links_json, m.release_json
+    `SELECT m.id, m.type, m.external_id, m.title, m.original_title, m.external_links_json, m.release_json, m.news_state_json
      FROM media m
      WHERE m.is_ongoing = 1 AND m.type IN ('tv', 'anime', 'manga') AND m.external_id IS NOT NULL
        AND EXISTS (SELECT 1 FROM library_entries l WHERE l.media_id = m.id AND l.status <> 'dropped')
-       AND (m.release_checked_at IS NULL OR m.release_checked_at < ?)
+       AND (m.release_checked_at IS NULL OR m.release_checked_at < ?1
+            -- Épisode annoncé désormais sorti : revérifié chaque heure jusqu'à ce que la source annonce le suivant.
+            OR (json_extract(m.release_json, '$.kind') = 'next' AND json_extract(m.release_json, '$.at') <= ?2 AND m.release_checked_at < ?3))
      ORDER BY m.release_checked_at IS NOT NULL, m.release_checked_at
-     LIMIT ?`,
+     LIMIT ?4`,
   )
-    .bind(new Date(Date.now() - 20 * 3600_000).toISOString(), limit)
+    .bind(
+      new Date(Date.now() - 20 * 3600_000).toISOString(),
+      new Date().toISOString(),
+      new Date(Date.now() - 50 * 60_000).toISOString(),
+      limit,
+    )
     .all<{
       id: number;
       type: MediaType;
@@ -146,6 +158,7 @@ export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise
       original_title: string | null;
       external_links_json: string | null;
       release_json: string | null;
+      news_state_json: string | null;
     }>();
   for (const row of results) {
     const media: ReleaseMedia = {
@@ -157,9 +170,19 @@ export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise
       release: parseRelease(row.release_json),
     };
     try {
+      const tv = row.type === "tv" ? await tmdbTvAiring(env.TMDB_API_TOKEN, row.external_id) : null;
+      if (tv) {
+        // Nouvelle saison annoncée pendant la diffusion (les séries terminées sont vérifiées par news.ts).
+        const state = row.news_state_json ? (JSON.parse(row.news_state_json) as NewsState) : {};
+        const seasons = seasonNews(env.DB, { id: row.id, state }, tv.raw.number_of_seasons, tv.raw.next_episode_to_air);
+        await env.DB.batch([
+          ...seasons.statements,
+          env.DB.prepare("UPDATE media SET news_state_json = ? WHERE id = ?").bind(JSON.stringify(seasons.state), row.id),
+        ]);
+      }
       const fiche =
-        row.type === "tv"
-          ? await tmdbTvAiring(env.TMDB_API_TOKEN, row.external_id)
+        tv
+          ? tv
           : row.type === "anime"
             ? await aniListAiring(row.external_id).then((a) => ({ isOngoing: a.ongoing, nextRelease: a.next }))
             : { isOngoing: true, nextRelease: null };

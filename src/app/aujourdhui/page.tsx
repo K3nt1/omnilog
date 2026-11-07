@@ -2,9 +2,11 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FocusBanner } from "@/components/FocusBanner";
+import { NewsList } from "@/components/NewsList";
 import { MediaCard } from "@/components/MediaCard";
 import { TodayReminders } from "@/components/TodayReminders";
 import { getFocusOverview } from "@/lib/browse";
+import { listNews } from "@/lib/news";
 import { getToday } from "@/lib/today";
 
 export const dynamic = "force-dynamic";
@@ -23,11 +25,11 @@ function dayTitle(day: string, today: string): string {
 
 /**
  * Aujourd'hui : ouverte en touchant une notification. La quête du jour (tes focus, avec leur action rapide),
- * les rappels du jour à cocher, et les sorties de la semaine pour ce que tu suis.
+ * les rappels du jour à cocher, les nouveautés et les sorties de la semaine pour ce que tu suis.
  */
 export default async function TodayPage() {
   const { env } = getCloudflareContext();
-  const [today, focus] = await Promise.all([getToday(env.DB), getFocusOverview(env.DB)]);
+  const [today, focus, news] = await Promise.all([getToday(env.DB), getFocusOverview(env.DB), listNews(env.DB, { limit: 40 })]);
   const heading = new Date(`${today.date}T12:00:00Z`).toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
@@ -53,6 +55,16 @@ export default async function TodayPage() {
           </Link>
         </div>
         <TodayReminders reminders={today.reminders} date={today.date} />
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="text-xl font-semibold">Nouveautés</h2>
+          <Link href="/reglages" className="text-sm text-white/60 hover:text-white">
+            Choisir les nouveautés →
+          </Link>
+        </div>
+        <NewsList key={news.map((n) => `${n.id}${n.seen ? "v" : ""}`).join(",")} items={news} />
       </section>
 
       <section>

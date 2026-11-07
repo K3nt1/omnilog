@@ -4,6 +4,7 @@ import { getFocusOverview } from "./browse";
 import { ficheHref, positionLine } from "./labels";
 import { CURRENT_USER_ID } from "./library";
 import { localNow, minutesOf, type LocalNow } from "./local-time";
+import { newsSummary } from "./news";
 import { MEDIA_TYPES } from "./types";
 
 export type ReminderKind = "daily_quest" | "media" | "custom";
@@ -186,7 +187,7 @@ export function isDue(r: Pick<Reminder, "isActive" | "daysOfWeek" | "timeOfDay" 
 const VERB: Record<string, string> = { movie: "Film", tv: "Série", anime: "Anime", manga: "Manga", game: "Jeu" };
 
 /** Texte de la quête du jour : un focus par type, avec où tu en es. */
-export async function dailyQuestMessage(db: D1Database): Promise<{ title: string; body: string; url: string }> {
+export async function dailyQuestMessage(db: D1Database, since: string | null = null): Promise<{ title: string; body: string; url: string }> {
   const overview = await getFocusOverview(db);
   const lines = MEDIA_TYPES.flatMap((t) => {
     const card = overview.cards[t];
@@ -194,9 +195,12 @@ export async function dailyQuestMessage(db: D1Database): Promise<{ title: string
     const where = positionLine(card);
     return [`${card.title}${where ? ` (${where})` : ""}`];
   });
+  // Les nouveautés arrivées depuis la dernière quête, en résumé.
+  const news = await newsSummary(db, since);
+  const quest = lines.length > 0 ? lines.join(" · ") : "Rien en cours : tire une œuvre au sort dans ta watchlist ou ton backlog.";
   return {
     title: "🎯 Quête du jour",
-    body: lines.length > 0 ? lines.join(" · ") : "Rien en cours : tire une œuvre au sort dans ta watchlist ou ton backlog.",
+    body: news ? `${quest}\n${news}` : quest,
     url: "/aujourdhui",
   };
 }

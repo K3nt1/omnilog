@@ -2,7 +2,9 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Metadata } from "next";
 import { GeneralSettings } from "@/components/settings/GeneralSettings";
 import { NotificationsCard } from "@/components/settings/NotificationsCard";
+import { NewsSettings } from "@/components/settings/NewsSettings";
 import { RemindersEditor } from "@/components/settings/RemindersEditor";
+import { getNewsKinds } from "@/lib/news";
 import { listReminders } from "@/lib/reminders";
 import { getSettings, REGIONS } from "@/lib/settings";
 
@@ -21,7 +23,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 /** Réglages : app et notifications, rappels, fuseau horaire et pays. */
 export default async function SettingsPage() {
   const { env } = getCloudflareContext();
-  const [settings, reminders] = await Promise.all([getSettings(env.DB), listReminders(env.DB)]);
+  const [settings, reminders, newsKinds] = await Promise.all([getSettings(env.DB), listReminders(env.DB), getNewsKinds(env.DB)]);
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
       <h1 className="text-3xl font-bold">Réglages</h1>
@@ -30,6 +32,9 @@ export default async function SettingsPage() {
       </Card>
       <Card title="Rappels">
         <RemindersEditor reminders={reminders} />
+      </Card>
+      <Card title="Nouveautés">
+        <NewsSettings key={newsKinds} mask={newsKinds} region={settings.watchRegion} />
       </Card>
       <Card title="Général">
         <GeneralSettings key={`${settings.timezone}-${settings.timezoneAuto}-${settings.watchRegion}`} settings={settings} regions={REGIONS} />

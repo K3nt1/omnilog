@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { TYPE_LABELS, TYPE_SLUGS } from "@/lib/labels";
 import { MEDIA_TYPES } from "@/lib/types";
 
@@ -17,9 +18,32 @@ const TOOLS = [
   { href: "/reglages", label: "Réglages" },
 ];
 
+/** Nouveautés pas encore vues, relues à chaque changement de page et après « Vu » (événement de useAction). */
+function useNewsCount(pathname: string): number {
+  const [count, setCount] = useState(0);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const onAction = () => setTick((t) => t + 1);
+    window.addEventListener("omnilog:news", onAction);
+    return () => window.removeEventListener("omnilog:news", onAction);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/news/count", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ count?: number }>) : { count: 0 }))
+      .then((json: { count?: number }) => alive && setCount(json.count ?? 0))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [pathname, tick]);
+  return count;
+}
+
 /** Barre de navigation en haut de chaque page ; défile horizontalement sur mobile. */
 export function Nav() {
   const pathname = usePathname();
+  const newsCount = useNewsCount(pathname);
   // Une fiche (/oeuvre/films/550) allume l'onglet de son type.
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith(`/oeuvre${href}/`);
@@ -37,6 +61,11 @@ export function Nav() {
         {LINKS.map((l) => (
           <Link key={l.href} href={l.href} className={linkClass(l.href)}>
             {l.label}
+            {l.href === "/aujourdhui" && newsCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-sky-500 px-1.5 text-xs font-semibold text-black" aria-label={`${newsCount} nouveautés`}>
+                {newsCount > 99 ? "99+" : newsCount}
+              </span>
+            )}
           </Link>
         ))}
         <span className="mx-2 h-5 w-px shrink-0 bg-white/15" aria-hidden />
