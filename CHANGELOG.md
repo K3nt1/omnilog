@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/K3nt1/omnilog/compare/v0.6.0...v0.7.0) (2026-11-07)
+
+
+### ✨ Nouveautés
+
+* **app:** application installable, notifications, rappels, page Aujourd'hui et Réglages ([#56](https://github.com/K3nt1/omnilog/issues/56)) ([9e3979a](https://github.com/K3nt1/omnilog/commit/9e3979ad58c76af910a14242fd41387212596508))
+* **journal:** tags à la Letterboxd, avec suggestions de tes tags existants ([#55](https://github.com/K3nt1/omnilog/issues/55)) ([7fa8545](https://github.com/K3nt1/omnilog/commit/7fa8545bf141cc5aaa366f69c2f982189daaf7ff))
+* **nouveautes:** fil des nouveautés sur ce que tu suis ([#57](https://github.com/K3nt1/omnilog/issues/57)) ([ce9e67d](https://github.com/K3nt1/omnilog/commit/ce9e67d1d46585b5017492238d2e7d3d857ebb5e))
+
 ## [0.6.0](https://github.com/K3nt1/omnilog/compare/v0.5.1...v0.6.0) (2026-10-28)
 
 
