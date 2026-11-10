@@ -78,6 +78,20 @@ export function GeneralSettings({ settings, regions }: { settings: Settings; reg
           ))}
         </select>
       </label>
+      <div className="space-y-1">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={settings.searchAdult}
+            disabled={busy !== null}
+            onChange={(e) => save("adult", { searchAdult: e.target.checked })}
+          />
+          Inclure le contenu pour adultes dans la recherche
+        </label>
+        <p className="text-xs text-white/50">
+          Anime et mangas : MyAnimeList écarte par défaut les œuvres classées pour adultes de ses résultats.
+        </p>
+      </div>
       {error && <p className="text-rose-400">{error}</p>}
     </div>
   );

@@ -37,7 +37,7 @@ export default async function SettingsPage() {
         <NewsSettings key={newsKinds} mask={newsKinds} region={settings.watchRegion} />
       </Card>
       <Card title="Général">
-        <GeneralSettings key={`${settings.timezone}-${settings.timezoneAuto}-${settings.watchRegion}`} settings={settings} regions={REGIONS} />
+        <GeneralSettings key={`${settings.timezone}-${settings.timezoneAuto}-${settings.watchRegion}-${settings.searchAdult}`} settings={settings} regions={REGIONS} />
       </Card>
     </main>
   );
