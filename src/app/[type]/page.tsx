@@ -13,6 +13,7 @@ import {
   durationLabel,
   episodeName,
   ficheHref,
+  issueLabel,
   starsLabel,
   STATUS_SLUGS,
   statusLabel,
@@ -33,7 +34,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const nf = new Intl.NumberFormat("fr-FR");
 
-const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué" };
+const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué", comic: "Lu" };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -46,7 +47,8 @@ function activityWhat(item: ActivityItem): string | null {
     const parts = [number, name].filter(Boolean);
     return parts.length > 0 ? parts.join(" · ") : null;
   }
-  if (item.logKind === "chapter" && item.chapter !== null) return `Ch. ${item.chapter.toLocaleString("fr-FR")}`;
+  if (item.logKind === "chapter" && item.chapter !== null)
+    return item.card.type === "comic" ? issueLabel(item.chapter) : `Ch. ${item.chapter.toLocaleString("fr-FR")}`;
   if (item.logKind === "volume" && item.volume !== null) return `Tome ${item.volume}`;
   if (item.logKind === "session") return item.minutes ? `Session de ${durationLabel(item.minutes)}` : "Session";
   return null;

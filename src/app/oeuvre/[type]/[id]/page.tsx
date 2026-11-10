@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToLibrary } from "@/components/fiche/AddToLibrary";
 import { FicheActions } from "@/components/fiche/FicheActions";
+import { IssueList } from "@/components/fiche/IssueList";
 import { ProgressPanel } from "@/components/fiche/ProgressPanel";
 import { Journal } from "@/components/fiche/Journal";
 import { PublisherField } from "@/components/fiche/PublisherField";
@@ -32,7 +33,7 @@ export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ type: string; id: string }> };
 
-const SOURCE_NAME: Record<MediaType, string> = { movie: "TMDB", tv: "TMDB", anime: "MyAnimeList", manga: "MyAnimeList", game: "IGDB" };
+const SOURCE_NAME: Record<MediaType, string> = { movie: "TMDB", tv: "TMDB", anime: "MyAnimeList", manga: "MyAnimeList", game: "IGDB", comic: "Comic Vine" };
 
 const REGION_NAMES: Record<string, string> = { CY: "Chypre", FR: "France", BE: "Belgique", CH: "Suisse", CA: "Canada" };
 
@@ -121,6 +122,7 @@ function durationLine(f: MediaFiche): string | null {
     if (f.totalChapters) parts.push(plural(f.totalChapters, "chapitre"));
     if (f.totalVolumes) parts.push(plural(f.totalVolumes, "tome"));
   }
+  if (f.type === "comic" && f.totalChapters) parts.push(f.totalChapters > 1 ? `${f.totalChapters} numéros` : "1 numéro");
   if (f.type === "game" && f.timeToBeat?.normally) parts.push(`≈ ${durationLabel(f.timeToBeat.normally)} pour le finir`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
@@ -456,6 +458,17 @@ export default async function FichePage({ params }: Props) {
           </Section>
         )}
 
+        {type === "comic" && (
+          <Section title="Numéros">
+            <IssueList
+              comicId={id}
+              issueCount={f.totalChapters}
+              entryId={entry?.id ?? null}
+              currentIssue={entry && entry.status !== "completed" ? (entry.currentChapter ?? 1) : null}
+            />
+          </Section>
+        )}
+
         <Journal
           lines={stored.journal}
           type={type}
@@ -483,9 +496,19 @@ export default async function FichePage({ params }: Props) {
           Données : {SOURCE_NAME[type]}
           {type === "anime" && release && ", horaires AniList"}
           {type === "manga" && release && ", chapitres MangaDex"}
-          {type === "movie" || type === "tv"
-            ? ". Ce produit utilise l'API TMDB mais n'est ni approuvé ni certifié par TMDB."
-            : "."}
+          {type === "movie" || type === "tv" ? (
+            ". Ce produit utilise l'API TMDB mais n'est ni approuvé ni certifié par TMDB."
+          ) : type === "comic" ? (
+            <>
+              {" "}(
+              <a href="https://comicvine.gamespot.com" target="_blank" rel="noopener noreferrer" className="underline">
+                comicvine.gamespot.com
+              </a>
+              ).
+            </>
+          ) : (
+            "."
+          )}
         </footer>
       </div>
     </main>

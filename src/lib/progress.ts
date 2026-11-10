@@ -86,6 +86,8 @@ export type ProgressAction =
   | { kind: "complete"; date?: string; rating?: number | null; review?: string | null }
   /** Épisode précis coché dans la liste des saisons (série), avec note et critique facultatives. */
   | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
+  /** Numéro précis coché dans la liste des numéros (comic), avec note et critique facultatives. */
+  | { kind: "markIssue"; issue: number; date?: string; rating?: number | null; review?: string | null }
   | { kind: "undo" };
 
 export class ProgressError extends Error {}
@@ -151,7 +153,12 @@ interface Plan {
   completed?: boolean;
   /** Épisodes sautés à cocher aussi (de la position actuelle jusqu'à l'épisode coché), à la même date. */
   bulkEpisodes?: { season: number; episode: number; at: string }[];
+  /** Numéros sautés (comic) à cocher aussi, à la même date. */
+  bulkChapters?: { chapter: number; at: string }[];
 }
+
+/** Lecture d'un chapitre (manga) ou d'un numéro (comic). */
+const isReading = (type: MediaType) => type === "manga" || type === "comic";
 
 /**
  * Épisodes de `from` (inclus) jusqu'à `to` (exclu), dans l'ordre des saisons ; vide si `to` est avant `from`.
@@ -204,7 +211,7 @@ export function planAction(
 
   switch (action.kind) {
     case "pause": {
-      if (entry.media_type === "manga") {
+      if (isReading(entry.media_type)) {
         if (!action.page || action.page < 1) throw new ProgressError("Page invalide.");
         return {
           set: { ...progressing, pause_page: action.page, current_chapter: entry.current_chapter ?? 1 },
@@ -246,6 +253,9 @@ export function planAction(
       } else if (entry.media_type === "anime") {
         if (!action.episode || action.episode < 1) throw new ProgressError("Épisode invalide.");
         set.current_episode = action.episode;
+      } else if (entry.media_type === "comic") {
+        if (action.chapter === undefined || action.chapter < 0) throw new ProgressError("Numéro invalide.");
+        set.current_chapter = action.chapter;
       } else if (entry.media_type === "manga") {
         if (action.chapter === undefined && action.volume === undefined) throw new ProgressError("Chapitre invalide.");
         if (action.chapter !== undefined) {
@@ -292,10 +302,12 @@ export function planAction(
     }
 
     case "chapter": {
-      if (entry.media_type !== "manga") throw new ProgressError("Pas de chapitres pour ce type.");
+      if (!isReading(entry.media_type)) throw new ProgressError("Pas de chapitres pour ce type.");
       const chapter = entry.current_chapter ?? 1;
       const log = { kind: "chapter", chapter, at: loggedAt(action.date) };
-      if (entry.total_chapters && chapter >= entry.total_chapters) {
+      // Comic : le dernier numéro connu ne termine la série que si elle n'est plus publiée.
+      const last = entry.media_type === "manga" || !entry.is_ongoing;
+      if (last && entry.total_chapters && chapter >= entry.total_chapters) {
         const done = complete(action.date);
         return { ...done, set: { ...done.set, current_chapter: chapter }, logs: [log, ...done.logs] };
       }
@@ -393,6 +405,42 @@ export function planAction(
         bulkEpisodes: skipped,
       };
     }
+
+    case "markIssue": {
+      if (entry.media_type !== "comic") throw new ProgressError("Seuls les numéros de comics se cochent un par un.");
+      if (!Number.isFinite(action.issue) || action.issue < 0) throw new ProgressError("Numéro invalide.");
+      const log = {
+        kind: "chapter",
+        chapter: action.issue,
+        at: loggedAt(action.date),
+        rating: action.rating ?? null,
+        review: action.review?.trim() || null,
+      };
+      const current = entry.current_chapter ?? 1;
+      // Numéro plus ancien que la position : simple lecture au journal, la position ne bouge pas.
+      if (action.issue < current) {
+        const status = entry.status === "planned" ? progressing : {};
+        return { set: status, logs: [log], takeFocus: entry.status === "planned" && autoFocus };
+      }
+      // Les numéros entiers entre la position et celui coché sont considérés comme lus.
+      const skipped: { chapter: number; at: string }[] = [];
+      for (let n = Math.ceil(current); n < action.issue && skipped.length < 500; n++) skipped.push({ chapter: n, at: log.at });
+      if (!entry.is_ongoing && entry.total_chapters && action.issue >= entry.total_chapters) {
+        const done = complete(action.date);
+        return {
+          ...done,
+          set: { ...done.set, current_chapter: action.issue },
+          logs: [log, ...done.logs],
+          bulkChapters: skipped,
+        };
+      }
+      return {
+        set: { ...progressing, current_chapter: Math.floor(action.issue) + 1, pause_page: null },
+        logs: [log],
+        takeFocus: autoFocus,
+        bulkChapters: skipped,
+      };
+    }
   }
 }
 
@@ -451,6 +499,18 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
                                AND p.season = json_extract(value, '$[0]') AND p.episode = json_extract(value, '$[1]'))`,
           )
           .bind(entryId, plan.bulkEpisodes[0].at, undo, JSON.stringify(plan.bulkEpisodes.map((e) => [e.season, e.episode]))),
+      );
+    }
+    if (plan.bulkChapters && plan.bulkChapters.length > 0) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO progress_log (entry_id, kind, chapter, logged_at, undo_json)
+             SELECT ?1, 'chapter', value, ?2, ?3
+             FROM json_each(?4)
+             WHERE NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = ?1 AND p.kind = 'chapter' AND p.chapter = value)`,
+          )
+          .bind(entryId, plan.bulkChapters[0].at, undo, JSON.stringify(plan.bulkChapters.map((c) => c.chapter))),
       );
     }
     for (const log of plan.logs) {

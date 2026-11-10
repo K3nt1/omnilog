@@ -8,6 +8,7 @@ export const TYPE_LABELS: Record<MediaType, string> = {
   anime: "Animes",
   manga: "Mangas",
   game: "Jeux",
+  comic: "Comics",
 };
 
 /** Nom au singulier, pour la pastille sur une affiche. */
@@ -17,6 +18,7 @@ export const TYPE_SINGULAR: Record<MediaType, string> = {
   anime: "Anime",
   manga: "Manga",
   game: "Jeu",
+  comic: "Comic",
 };
 
 /** Adresse de la page de chaque type : /films, /series… */
@@ -26,6 +28,7 @@ export const TYPE_SLUGS: Record<MediaType, string> = {
   anime: "animes",
   manga: "mangas",
   game: "jeux",
+  comic: "comics",
 };
 
 export function typeFromSlug(slug: string | undefined): MediaType | null {
@@ -55,6 +58,7 @@ const PLANNED: Record<MediaType, string> = {
   anime: "Watchlist",
   manga: "Backlog",
   game: "Backlog",
+  comic: "Backlog",
 };
 
 const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
@@ -63,6 +67,7 @@ const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
   anime: ["Vu", "Vus"],
   manga: ["Lu", "Lus"],
   game: ["Joué", "Joués"],
+  comic: ["Lu", "Lus"],
 };
 
 /** Libellé d'un statut pour un type donné (« À lire », « Vus »…), ou tous types confondus si type = null. */
@@ -114,7 +119,7 @@ export function dateLabel(value: string): string {
   return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-const COMPLETED_VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vue", anime: "Vu", manga: "Lu", game: "Joué" };
+const COMPLETED_VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vue", anime: "Vu", manga: "Lu", game: "Joué", comic: "Lu" };
 
 /**
  * Ligne affichée sous une affiche selon le tri choisi (« Ajouté le 12 oct. 2025 », « Vu 3 fois »…).
@@ -165,6 +170,9 @@ export const ficheHref = (type: MediaType, externalId: string | null) =>
   externalId ? `/oeuvre/${TYPE_SLUGS[type]}/${externalId}` : `/${TYPE_SLUGS[type]}`;
 
 /** Où on en est, en une ligne : « S08E05 · ⏸ 12:34 », « T. 5 · Ch. 42 · p. 12 », « 3 sessions · 4 h 30 · Velen »… */
+/** Numéro d'un comic : 42 → « #42 », 1.5 → « #1,5 ». */
+export const issueLabel = (n: number) => `#${n.toLocaleString("fr-FR")}`;
+
 export function positionLine(p: {
   type: MediaType;
   status: LibraryStatus;
@@ -184,6 +192,7 @@ export function positionLine(p: {
   if (p.type === "anime") parts.push(`Ép. ${p.currentEpisode ?? 1}`);
   if (p.type === "manga" && p.currentVolume) parts.push(`T. ${p.currentVolume}`);
   if (p.type === "manga") parts.push(`Ch. ${(p.currentChapter ?? 1).toLocaleString("fr-FR")}`);
+  if (p.type === "comic") parts.push(issueLabel(p.currentChapter ?? 1));
   if (p.pauseSeconds !== null) parts.push(`⏸ ${clockLabel(p.pauseSeconds)}`);
   if (p.pausePage !== null) parts.push(`p. ${p.pausePage}`);
   if (p.type === "game") {

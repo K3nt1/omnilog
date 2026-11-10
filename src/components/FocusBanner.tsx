@@ -14,7 +14,7 @@ export function FocusBanner({ overview, type = null }: { overview: FocusOverview
   return (
     <section aria-label="En ce moment">
       <h2 className="mb-3 text-xl font-semibold">En ce moment</h2>
-      <div className="scroll-row -mx-4 -mt-1 grid auto-cols-[minmax(16rem,1fr)] grid-flow-col gap-3 overflow-x-auto px-4 pt-1 pb-3 xl:grid-flow-row xl:grid-cols-5">
+      <div className="scroll-row -mx-4 -mt-1 grid auto-cols-[minmax(16rem,1fr)] grid-flow-col gap-3 overflow-x-auto px-4 pt-1 pb-3 xl:grid-flow-row xl:grid-cols-3">
         {MEDIA_TYPES.map((t) => (
           <FocusSlot key={t} type={t} card={overview.cards[t] ?? null} plannedCount={overview.plannedCounts[t]} />
         ))}

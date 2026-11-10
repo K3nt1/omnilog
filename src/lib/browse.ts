@@ -101,11 +101,12 @@ const LAST_ACTIVITY = `COALESCE(
 /** Nombre de fois où l'œuvre a été vue / lue / jouée en entier (film vu, série / anime / manga / jeu terminé). */
 const COMPLETIONS = `(SELECT COUNT(*) FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('movie', 'complete'))`;
 
-/** « Durée » selon le type : minutes (film, jeu), épisodes (série, anime), chapitres sinon tomes (manga). */
+/** « Durée » selon le type : minutes (film, jeu), épisodes (série, anime), chapitres sinon tomes (manga), numéros (comic). */
 const DURATION = `CASE m.type
   WHEN 'movie' THEN m.runtime_minutes
   WHEN 'game' THEN m.runtime_minutes
   WHEN 'manga' THEN COALESCE(m.total_chapters, m.total_volumes)
+  WHEN 'comic' THEN m.total_chapters
   ELSE m.total_episodes END`;
 
 const SORT_SQL: Record<SortKey, string> = {

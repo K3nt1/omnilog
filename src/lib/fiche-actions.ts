@@ -2,6 +2,7 @@
 // « Ce n'est pas la bonne œuvre » (changer la correspondance en gardant le suivi), images proposées par la source.
 import { CURRENT_USER_ID, upsertMedia } from "./library";
 import { getDetails } from "./sources";
+import { comicCovers } from "./sources/comicvine";
 import { igdbImage, igdbQuery } from "./sources/igdb";
 import { malGet } from "./sources/mal";
 import { tmdbGet, tmdbImage } from "./sources/tmdb";
@@ -99,6 +100,10 @@ export async function sourceImages(env: CloudflareEnv, type: MediaType, external
     );
     const all = [data.main_picture, ...(data.pictures ?? [])].map((p) => p?.large ?? p?.medium).filter((u): u is string => !!u);
     return { posters: [...new Set(all)].slice(0, 30), backdrops: [] };
+  }
+  if (type === "comic") {
+    // Couvertures des numéros de la série (les 30 premiers).
+    return { posters: await comicCovers(env.COMICVINE_API_KEY, externalId), backdrops: [] };
   }
   const [game] = await igdbQuery<{ cover?: { image_id: string }; artworks?: { image_id: string }[]; screenshots?: { image_id: string }[] }[]>(
     env,

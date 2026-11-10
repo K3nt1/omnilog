@@ -16,9 +16,15 @@ export function CardActions({ card, popover = false }: { card: LibraryCard; /** 
   const [open, setOpen] = useState(false);
   const patch = (id: string, body: Record<string, unknown>) => run(id, `/api/library/${card.entryId}`, body, "PATCH");
   const step =
-    card.status !== "completed" && (card.type === "tv" || card.type === "anime" || card.type === "manga")
-      ? { kind: card.type === "manga" ? "chapter" : "episode", label: card.type === "manga" ? "+1 chapitre" : "+1 épisode" }
-      : null;
+    card.status === "completed"
+      ? null
+      : card.type === "tv" || card.type === "anime"
+        ? { kind: "episode", label: "+1 épisode" }
+        : card.type === "manga"
+          ? { kind: "chapter", label: "+1 chapitre" }
+          : card.type === "comic"
+            ? { kind: "chapter", label: "+1 numéro" }
+            : null;
   const item = "w-full rounded-md bg-white/10 px-2 py-1.5 text-left text-xs hover:bg-white/20 disabled:opacity-50";
 
   if (!open) {

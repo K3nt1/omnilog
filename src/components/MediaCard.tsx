@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { LibraryCard } from "@/lib/browse-shared";
 import { CardActions } from "./CardActions";
 import { ReleaseText } from "./ReleaseText";
-import { clockLabel, ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
+import { clockLabel, ficheHref, issueLabel, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { yearOf } from "@/lib/types";
 
 /** Progression affichée sur l'affiche, seulement pour une œuvre commencée et pas terminée. */
@@ -26,6 +26,13 @@ export function progressOf(card: LibraryCard): { label: string; ratio: number | 
     const volume = card.currentVolume ? `T. ${card.currentVolume} · ` : "";
     return {
       label: total ? `${volume}Ch. ${chapter} / ${total}` : `${volume}Ch. ${chapter}`,
+      ratio: total ? Math.min(1, (card.currentChapter - 1) / total) : null,
+    };
+  }
+  if (card.type === "comic" && card.currentChapter !== null) {
+    const total = card.totalChapters;
+    return {
+      label: total ? `${issueLabel(card.currentChapter)} / ${total}` : issueLabel(card.currentChapter),
       ratio: total ? Math.min(1, (card.currentChapter - 1) / total) : null,
     };
   }

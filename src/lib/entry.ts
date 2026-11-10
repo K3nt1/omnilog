@@ -402,3 +402,21 @@ export async function getEpisodeLogs(
   const m = media.results[0] as { title: string; original_title: string | null } | undefined;
   return { titles: m ? [m.title, m.original_title] : [], logs: logs.results as unknown as EpisodeLog[] };
 }
+
+/** Lectures des numéros d'un comic (journal, kind « chapter »), de la plus récente à la plus ancienne. */
+export async function getIssueLogs(
+  db: D1Database,
+  externalId: string,
+): Promise<{ id: number; chapter: number; at: string; rating: number | null; review: string | null }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.chapter, p.logged_at AS at, p.rating, p.review
+       FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
+       WHERE l.user_id = ? AND m.type = 'comic' AND m.source = 'comicvine' AND m.external_id = ?
+         AND p.kind = 'chapter' AND p.chapter IS NOT NULL
+       ORDER BY p.logged_at DESC, p.id DESC`,
+    )
+    .bind(CURRENT_USER_ID, externalId)
+    .all<{ id: number; chapter: number; at: string; rating: number | null; review: string | null }>();
+  return results;
+}

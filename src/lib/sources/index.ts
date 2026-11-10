@@ -1,6 +1,7 @@
 // Point d'entrée unique : recherche dans toutes les sources en parallèle,
 // et récupération de la fiche complète d'une œuvre.
 import { normalizeSearch } from "../search-text";
+import { COMICVINE_MIN_QUERY_LENGTH, getComicVineDetails, searchComicVine } from "./comicvine";
 import { SourceError } from "./http";
 import { getIgdbDetails, searchIgdb } from "./igdb";
 import { getMalDetails, MAL_MIN_QUERY_LENGTH, searchMal } from "./mal";
@@ -15,6 +16,9 @@ export async function searchAll(env: CloudflareEnv, query: string, types: Set<Me
   }
   if (types.has("game")) {
     tasks.push({ source: "igdb", run: () => searchIgdb(env, query) });
+  }
+  if (types.has("comic") && query.length >= COMICVINE_MIN_QUERY_LENGTH) {
+    tasks.push({ source: "comicvine", run: () => searchComicVine(env.COMICVINE_API_KEY, query) });
   }
   if (query.length >= MAL_MIN_QUERY_LENGTH) {
     if (types.has("anime")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "anime", query, adult) });
@@ -86,5 +90,7 @@ export function getDetails(
     case "anime":
     case "manga":
       return getMalDetails(env.MAL_CLIENT_ID, type, externalId);
+    case "comic":
+      return getComicVineDetails(env.COMICVINE_API_KEY, externalId);
   }
 }
