@@ -8,6 +8,8 @@ export interface Settings {
   timezoneAuto: boolean;
   /** Pays pour « Où regarder » (code ISO à 2 lettres). */
   watchRegion: string;
+  /** Inclure le contenu pour adultes dans la recherche (MyAnimeList l'écarte par défaut). */
+  searchAdult: boolean;
 }
 
 /** Pays proposés pour « Où regarder » (JustWatch via TMDB). */
@@ -29,13 +31,14 @@ export const REGIONS: [code: string, name: string][] = [
 
 export async function getSettings(db: D1Database): Promise<Settings> {
   const row = await db
-    .prepare("SELECT timezone, timezone_auto, watch_region FROM users WHERE id = ?")
+    .prepare("SELECT timezone, timezone_auto, watch_region, search_adult FROM users WHERE id = ?")
     .bind(CURRENT_USER_ID)
-    .first<{ timezone: string; timezone_auto: number; watch_region: string }>();
+    .first<{ timezone: string; timezone_auto: number; watch_region: string; search_adult: number }>();
   return {
     timezone: row?.timezone ?? "Europe/Paris",
     timezoneAuto: (row?.timezone_auto ?? 1) === 1,
     watchRegion: row?.watch_region ?? "FR",
+    searchAdult: row?.search_adult === 1,
   };
 }
 
@@ -52,6 +55,7 @@ export async function updateSettings(db: D1Database, patch: Partial<Settings>): 
     if (!/^[A-Z]{2}$/.test(patch.watchRegion)) return "Pays invalide.";
     parts.push(["watch_region = ?", patch.watchRegion]);
   }
+  if (patch.searchAdult !== undefined) parts.push(["search_adult = ?", patch.searchAdult ? 1 : 0]);
   if (parts.length > 0) {
     await db
       .prepare(`UPDATE users SET ${parts.map(([s]) => s).join(", ")} WHERE id = ?`)

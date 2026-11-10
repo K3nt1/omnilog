@@ -1,4 +1,4 @@
-// PATCH /api/settings { timezone?, timezoneAuto?, watchRegion?, newsKinds? } : modifie les réglages.
+// PATCH /api/settings { timezone?, timezoneAuto?, watchRegion?, searchAdult?, newsKinds? } : modifie les réglages.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { setNewsKinds } from "@/lib/news";
@@ -18,6 +18,10 @@ export async function PATCH(request: NextRequest) {
     patch.timezoneAuto = body.timezoneAuto;
   }
   if ("watchRegion" in body) patch.watchRegion = String(body.watchRegion);
+  if ("searchAdult" in body) {
+    if (typeof body.searchAdult !== "boolean") return NextResponse.json({ error: "Valeur invalide." }, { status: 400 });
+    patch.searchAdult = body.searchAdult;
+  }
   const { env } = getCloudflareContext();
   if ("newsKinds" in body) {
     const mask = body.newsKinds;

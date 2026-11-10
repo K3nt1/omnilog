@@ -2,6 +2,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { findLibraryStatuses } from "@/lib/library";
+import { getSettings } from "@/lib/settings";
 import { searchAll } from "@/lib/sources";
 import { isMediaType, MEDIA_TYPES, type MediaType } from "@/lib/types";
 
@@ -24,7 +25,8 @@ export async function GET(request: NextRequest) {
   }
 
   const { env } = getCloudflareContext();
-  const response = await searchAll(env, query, parseTypes(request.nextUrl.searchParams.get("types")));
+  const { searchAdult } = await getSettings(env.DB);
+  const response = await searchAll(env, query, parseTypes(request.nextUrl.searchParams.get("types")), searchAdult);
 
   const statuses = await findLibraryStatuses(env.DB, response.results);
   for (const result of response.results) {
