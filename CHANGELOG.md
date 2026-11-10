@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/K3nt1/omnilog/compare/v0.7.2...v0.7.3) (2026-11-10)
+
+
+### 🐛 Corrections
+
+* **notifications:** rappels livrés à l'heure sur Android (urgence haute) ([#70](https://github.com/K3nt1/omnilog/issues/70)) ([d556734](https://github.com/K3nt1/omnilog/commit/d556734f15c2da5467bd9f508cf5f71c8f846180))
+
 ## [0.7.2](https://github.com/K3nt1/omnilog/compare/v0.7.1...v0.7.2) (2026-11-07)
 
 
