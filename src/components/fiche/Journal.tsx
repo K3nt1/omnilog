@@ -3,25 +3,26 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { JournalLine } from "@/lib/entry";
-import { dateLabel, durationLabel, episodeName, starsLabel } from "@/lib/labels";
+import { dateLabel, durationLabel, episodeName, issueLabel, starsLabel } from "@/lib/labels";
 import type { MediaType } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { useAction } from "../useAction";
 import { StarRating } from "./StarRating";
 import { TagInput } from "./TagInput";
 
-const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué" };
-const AGAIN: Record<MediaType, string> = { movie: "revu", tv: "revue", anime: "revu", manga: "relu", game: "rejoué" };
+const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué", comic: "Lu" };
+const AGAIN: Record<MediaType, string> = { movie: "revu", tv: "revue", anime: "revu", manga: "relu", game: "rejoué", comic: "relu" };
 const pad = (n: number) => String(n).padStart(2, "0");
 const field = "rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-sm outline-none focus:border-white/40";
 
-function what(line: JournalLine, titles: (string | null)[]): string | null {
+function what(line: JournalLine, titles: (string | null)[], type: MediaType): string | null {
   if (line.kind === "episode") {
     const number = line.episode !== null ? (line.season !== null ? `S${pad(line.season)}E${pad(line.episode)}` : `Ép. ${line.episode}`) : null;
     const name = line.note ? episodeName(line.note, titles) : null;
     return [number, name].filter(Boolean).join(" · ") || null;
   }
-  if (line.kind === "chapter" && line.chapter !== null) return `Ch. ${line.chapter.toLocaleString("fr-FR")}`;
+  if (line.kind === "chapter" && line.chapter !== null)
+    return type === "comic" ? issueLabel(line.chapter) : `Ch. ${line.chapter.toLocaleString("fr-FR")}`;
   if (line.kind === "volume" && line.volume !== null)
     return `Tome ${line.volume}${line.chapter !== null ? ` · jusqu'au ch. ${line.chapter.toLocaleString("fr-FR")}` : ""}`;
   if (line.kind === "session") return line.minutes ? durationLabel(line.minutes) : null;
@@ -142,7 +143,7 @@ export function Journal({
       {lines.length > 0 && (
         <ul className="divide-y divide-white/10 rounded-xl bg-white/5 ring-1 ring-white/10">
           {lines.map((line) => {
-            const detail = what(line, titles);
+            const detail = what(line, titles, type);
             return (
               <li key={line.id} className="space-y-1 px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">

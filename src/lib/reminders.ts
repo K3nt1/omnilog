@@ -5,7 +5,7 @@ import { ficheHref, positionLine } from "./labels";
 import { CURRENT_USER_ID } from "./library";
 import { localNow, minutesOf, type LocalNow } from "./local-time";
 import { newsSummary } from "./news";
-import { MEDIA_TYPES } from "./types";
+import { MEDIA_TYPES, type MediaType } from "./types";
 
 export type ReminderKind = "daily_quest" | "media" | "custom";
 
@@ -219,7 +219,7 @@ export async function reminderMessage(db: D1Database, r: Reminder): Promise<{ ti
     .bind(r.entryId)
     .first<Record<string, unknown>>();
   if (!row) return { title: `⏰ ${r.label ?? "Rappel"}`, body: "", url: "/aujourdhui", tag: `rappel-${r.id}` };
-  const type = row.type as "movie" | "tv" | "anime" | "manga" | "game";
+  const type = row.type as MediaType;
   const where =
     row.status === "in_progress" || row.status === "on_hold"
       ? positionLine({

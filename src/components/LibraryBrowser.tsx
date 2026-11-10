@@ -11,7 +11,7 @@ import { Pagination } from "./Pagination";
 /** « En diffusion » n'a de sens que pour les séries, anime et mangas. */
 function ongoingLabel(type: MediaType | null): string | null {
   if (type === "movie" || type === "game") return null;
-  if (type === "manga") return "En cours de publication";
+  if (type === "manga" || type === "comic") return "En cours de publication";
   if (type === null) return "En diffusion / publication";
   return "En diffusion";
 }
@@ -22,6 +22,7 @@ const DURATION_LABELS: Record<MediaType, string> = {
   anime: "Nombre d'épisodes",
   manga: "Nombre de chapitres",
   game: "Durée de vie",
+  comic: "Nombre de numéros",
 };
 
 const nf = new Intl.NumberFormat("fr-FR");

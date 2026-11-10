@@ -75,7 +75,7 @@ export async function refreshRelease(
 ): Promise<ReleaseInfo | null> {
   let next: ReleaseInfo | null = media.release;
   try {
-    if (!fiche.isOngoing || type === "movie" || type === "game") next = null;
+    if (!fiche.isOngoing || type === "movie" || type === "game" || type === "comic") next = null; // comics : sorties en v0.8 partie 2
     else if (type === "tv") next = fiche.nextRelease;
     else if (type === "anime") next = fiche.nextRelease ?? (await aniListAiring(media.externalId)).next;
     else {

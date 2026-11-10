@@ -13,6 +13,7 @@ const QUICK: Record<MediaType, { kind: "episode" | "chapter" | "complete"; label
   tv: { kind: "episode", label: "✓ Épisode vu" },
   anime: { kind: "episode", label: "✓ Épisode vu" },
   manga: { kind: "chapter", label: "✓ Chapitre lu" },
+  comic: { kind: "chapter", label: "✓ Numéro lu" },
   game: null, // une session demande une durée : on passe par la fiche
 };
 

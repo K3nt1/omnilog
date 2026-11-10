@@ -100,3 +100,18 @@ export interface SeasonEpisodeResponse {
   /** Ton visionnage le plus récent de cet épisode, sinon null. */
   watched: { logId: number; at: string; rating: number | null; review: string | null; count: number } | null;
 }
+
+/** Numéro d'une série de comics tel que renvoyé par /api/fiche/comics/:id/numeros. */
+export interface ComicIssueResponse {
+  id: number;
+  /** Numéro tel qu'affiché par Comic Vine (« 42 », « 1.5 », « Annual 1 »). */
+  label: string;
+  /** Numéro sous forme de nombre, null s'il n'est pas numérique (ne se coche pas alors). */
+  number: number | null;
+  name: string | null;
+  coverUrl: string | null;
+  date: string | null;
+  url: string | null;
+  /** Ta lecture la plus récente de ce numéro, sinon null. */
+  read: { logId: number; at: string; rating: number | null; review: string | null; count: number } | null;
+}
