@@ -69,7 +69,9 @@ export async function wakeDevices(env: PushEnv): Promise<number> {
         method: "POST",
         headers: {
           TTL: String(24 * 3600),
-          Urgency: "normal",
+          // « high » : livrée tout de suite. En « normal », Android (mode Doze) peut garder la notification
+          // jusqu'au prochain réveil du téléphone : un rappel de 10 h arrivait avec la quête de 12 h.
+          Urgency: "high",
           Authorization: `vapid t=${await vapidJwt(keys, sub.endpoint)}, k=${keys.VAPID_PUBLIC_KEY}`,
           "Content-Length": "0",
         },
