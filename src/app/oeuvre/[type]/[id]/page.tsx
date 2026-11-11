@@ -316,7 +316,15 @@ export default async function FichePage({ params }: Props) {
 
         {(release || f.nextEpisode) && (
           <p className="rounded-lg bg-violet-500/10 px-4 py-3 text-sm text-violet-200">
-            <span className="font-medium">{type === "manga" ? "Dernier chapitre : " : "Prochain épisode : "}</span>
+            <span className="font-medium">
+              {type === "manga"
+                ? "Dernier chapitre : "
+                : type === "comic"
+                  ? release?.kind === "next"
+                    ? "Prochain numéro : "
+                    : "Dernier numéro : "
+                  : "Prochain épisode : "}
+            </span>
             {release ? (
               <ReleaseText release={release} />
             ) : (
@@ -329,6 +337,8 @@ export default async function FichePage({ params }: Props) {
             )}
             {/* Anime : le rythme de diffusion en plus du prochain épisode daté. */}
             {release && type === "anime" && f.nextEpisode && <span className="text-violet-300/70"> · {f.nextEpisode.label}</span>}
+            {/* Comic : le dernier paru, quand le suivant est déjà annoncé. */}
+            {release?.kind === "next" && release.lastLabel && <span className="text-violet-300/70"> · dernier paru : {release.lastLabel}</span>}
           </p>
         )}
 

@@ -1,7 +1,7 @@
 // Prochaines sorties : types et textes, utilisables côté serveur comme côté navigateur.
 
 /**
- * Prochain épisode annoncé (séries, anime) ou dernier chapitre paru (mangas).
+ * Prochain épisode annoncé (séries, anime), dernier chapitre paru (mangas), prochain ou dernier numéro (comics).
  * `precision` : « day » = date seule (TMDB, MangaDex), « time » = heure exacte (AniList).
  */
 export interface ReleaseInfo {
@@ -13,6 +13,8 @@ export interface ReleaseInfo {
   precision: "day" | "time";
   /** Dernière vérification auprès de la source (ISO). */
   checkedAt?: string;
+  /** Comics : dernier numéro paru (« #42 »), même quand le suivant est annoncé ; un changement = nouveauté. */
+  lastLabel?: string;
 }
 
 /** Sortie affichable (un manga vérifié sans chapitre connu garde seulement sa date de vérification). */

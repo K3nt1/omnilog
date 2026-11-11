@@ -2,6 +2,8 @@
 // Une série (« volume » chez Comic Vine) = une œuvre ; ses numéros (« issues ») se suivent comme des épisodes.
 // Limites : 200 requêtes par heure et par ressource, User-Agent obligatoire, usage non commercial avec lien vers Comic Vine.
 import { fetchJson, SourceError } from "./http";
+import { issueLabel } from "../labels";
+import type { ReleaseInfo } from "../release-shared";
 import { resultKey, yearOf, type MediaDetails, type SearchResult } from "../types";
 
 const API = "https://comicvine.gamespot.com/api";
@@ -158,48 +160,86 @@ async function searchVolumes(key: string | undefined, query: string): Promise<Se
   });
 }
 
-/** Fiche de la série et son numéro le plus récent (pour savoir si elle est encore publiée). */
-export async function getComicVineVolume(key: string | undefined, id: string): Promise<{ volume: CvVolume; latest: CvIssue | null }> {
+/** Numéros les plus récents d'une série (date de couverture décroissante) : dernier paru et prochains annoncés. */
+export async function recentIssues(key: string | undefined, id: string): Promise<CvIssue[]> {
   if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
-  const [volume, latest] = await Promise.all([
+  const data = await cv<CvIssue[]>(key, "issues/", {
+    filter: `volume:${id}`,
+    sort: "cover_date:desc",
+    limit: "6",
+    field_list: "id,issue_number,cover_date,store_date",
+  });
+  return data.results;
+}
+
+/** Fiche de la série et ses numéros les plus récents (pour savoir si elle est encore publiée). */
+export async function getComicVineVolume(key: string | undefined, id: string): Promise<{ volume: CvVolume; recent: CvIssue[] }> {
+  if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
+  const [volume, recent] = await Promise.all([
     cv<CvVolume>(key, `volume/4050-${id}/`, {
       field_list: "id,name,start_year,publisher,image,count_of_issues,deck,description,site_detail_url,first_issue,last_issue",
     }).then((d) => d.results),
-    cv<CvIssue[]>(key, "issues/", {
-      filter: `volume:${id}`,
-      sort: "cover_date:desc",
-      limit: "1",
-      field_list: "id,issue_number,cover_date,store_date",
-    })
-      .then((d) => d.results[0] ?? null)
-      .catch(() => null), // facultatif : sans lui, la série est simplement considérée comme terminée
+    // Facultatif : sans eux, la série est simplement considérée comme terminée.
+    recentIssues(key, id).catch(() => [] as CvIssue[]),
   ]);
   // Une série inexistante renvoie parfois un tableau vide au lieu d'une erreur.
   if (!volume || Array.isArray(volume) || !volume.id) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
-  return { volume, latest };
+  return { volume, recent };
 }
 
 /** Date de sortie d'un numéro : en librairie si connue, sinon date de couverture. */
 export const issueDate = (issue: Pick<CvIssue, "store_date" | "cover_date">) => issue.store_date || issue.cover_date || null;
 
-export function isOngoing(latest: CvIssue | null, now = Date.now()): boolean {
-  const date = latest ? issueDate(latest) : null;
-  if (!date) return false;
-  const time = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
-  return Number.isFinite(time) && time >= now - ONGOING_DAYS * 86_400_000;
+/** En cours de publication : un numéro paru il y a moins de 4 mois, ou annoncé. */
+export function isOngoing(recent: CvIssue[], now = Date.now()): boolean {
+  return recent.some((issue) => {
+    const date = issueDate(issue);
+    if (!date) return false;
+    const time = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
+    return Number.isFinite(time) && time >= now - ONGOING_DAYS * 86_400_000;
+  });
 }
 
 /** Dernier numéro (le plus grand) : celui qui termine la série une fois lu. */
-export function lastIssueNumber(volume: CvVolume, latest: CvIssue | null): number | null {
-  const candidates = [issueNumber(volume.last_issue?.issue_number), issueNumber(latest?.issue_number)].filter(
+export function lastIssueNumber(volume: Pick<CvVolume, "last_issue" | "count_of_issues"> | null, recent: CvIssue[]): number | null {
+  const candidates = [issueNumber(volume?.last_issue?.issue_number), ...recent.map((i) => issueNumber(i.issue_number))].filter(
     (n): n is number => n !== null,
   );
   if (candidates.length > 0) return Math.max(...candidates);
-  return volume.count_of_issues || null;
+  return volume?.count_of_issues || null;
+}
+
+/**
+ * Sortie à afficher : le prochain numéro annoncé (date en librairie à venir), sinon le dernier paru.
+ * `lastLabel` garde le dernier numéro paru dans les deux cas : quand il change, c'est une nouveauté.
+ * La date en librairie est préférée à la date de couverture, souvent fixée deux mois plus tard.
+ */
+export function comicRelease(recent: CvIssue[], now = new Date()): ReleaseInfo | null {
+  const today = now.toISOString().slice(0, 10);
+  const dated = recent
+    .map((issue) => ({ number: issueNumber(issue.issue_number), date: issueDate(issue)?.slice(0, 10) ?? null }))
+    .filter((i): i is { number: number; date: string } => i.number !== null && i.date !== null);
+  const upcoming = dated.filter((i) => i.date > today).sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
+  const released = dated.filter((i) => i.date <= today).sort((a, b) => b.date.localeCompare(a.date) || b.number - a.number);
+  const last = released[0];
+  const next = upcoming[0];
+  const lastLabel = last ? issueLabel(last.number) : "";
+  if (next) return { kind: "next", label: issueLabel(next.number), at: next.date, precision: "day", lastLabel };
+  if (last) return { kind: "last", label: lastLabel, at: last.date, precision: "day", lastLabel };
+  return null;
+}
+
+/** Publication d'une série (une requête) : en cours ?, dernier numéro, prochaine sortie. Pour la tâche programmée. */
+export async function comicPublication(
+  key: string | undefined,
+  id: string,
+): Promise<{ isOngoing: boolean; nextRelease: ReleaseInfo | null; totalChapters: number | null }> {
+  const recent = await recentIssues(key, id);
+  return { isOngoing: isOngoing(recent), nextRelease: comicRelease(recent), totalChapters: lastIssueNumber(null, recent) };
 }
 
 export async function getComicVineDetails(key: string | undefined, id: string): Promise<MediaDetails> {
-  const { volume, latest } = await getComicVineVolume(key, id);
+  const { volume, recent } = await getComicVineVolume(key, id);
   const startYear = yearOf(volume.start_year);
   return {
     type: "comic",
@@ -213,9 +253,9 @@ export async function getComicVineDetails(key: string | undefined, id: string): 
     releaseDate: startYear ? `${startYear}-01-01` : null,
     runtimeMinutes: null,
     totalEpisodes: null,
-    totalChapters: lastIssueNumber(volume, latest),
+    totalChapters: lastIssueNumber(volume, recent),
     totalVolumes: null,
-    isOngoing: isOngoing(latest),
+    isOngoing: isOngoing(recent),
     seasons: [],
     extra: {
       publisher: volume.publisher?.name ?? null,
