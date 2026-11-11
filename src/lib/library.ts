@@ -131,7 +131,7 @@ export async function addToLibrary(
 // Import (Letterboxd, MyAnimeList)
 // ---------------------------------------------------------------------
 
-export type ImportSource = "letterboxd" | "mal" | "serializd" | "backloggd";
+export type ImportSource = "letterboxd" | "mal" | "serializd" | "backloggd" | "locg";
 
 /** D1 accepte au plus 100 paramètres par requête : on découpe les listes. */
 const PARAM_CHUNK = 90;
@@ -324,14 +324,18 @@ export interface ImportedLog {
   loggedAt: string; // ISO 8601
   /** Épisode de série (titre Letterboxd « Sherlock: The Great Game »), ou point d'avancée d'un jeu. */
   note: string | null;
+  /** Numéro de comic lu. */
+  chapter?: number | null;
+  /** Date de lecture inconnue (loggedAt = date de l'import). */
+  undated?: boolean;
 }
 
 /** Insère l'historique des visionnages ; les entrées déjà importées (même external_ref) sont ignorées. */
 export async function insertImportedLogs(db: D1Database, entryId: number, logs: ImportedLog[]): Promise<void> {
   if (logs.length === 0) return;
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO progress_log (entry_id, kind, rating, review, tags_json, external_ref, logged_at, note, chapter, undated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   await db.batch(
     logs.map((log) =>
@@ -344,6 +348,8 @@ export async function insertImportedLogs(db: D1Database, entryId: number, logs: 
         log.externalRef,
         log.loggedAt,
         log.note,
+        log.chapter ?? null,
+        log.undated ? 1 : 0,
       ),
     ),
   );

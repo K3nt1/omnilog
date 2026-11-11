@@ -305,3 +305,46 @@ export async function comicCovers(key: string | undefined, id: string): Promise<
   });
   return [...new Set(data.results.map((i) => posterOf(i.image)).filter((u): u is string => !!u))];
 }
+
+/** Série Comic Vine telle que vue pendant un import (sans fiche complète). */
+export interface VolumeHit {
+  id: number;
+  name: string;
+  year: number | null;
+  publisher: string | null;
+  issueCount: number | null;
+  posterUrl: string | null;
+}
+
+const toHit = (v: CvVolume): VolumeHit => ({
+  id: v.id,
+  name: v.name,
+  year: yearOf(v.start_year),
+  publisher: v.publisher?.name ?? null,
+  issueCount: v.count_of_issues ?? null,
+  posterUrl: posterOf(v.image),
+});
+
+/** Séries dont le nom correspond (recherche plein texte, 20 premiers résultats). */
+export async function searchVolumeHits(key: string | undefined, name: string): Promise<VolumeHit[]> {
+  const data = await cv<CvVolume[]>(key, "search/", {
+    resources: "volume",
+    query: name,
+    limit: "20",
+    field_list: "id,name,start_year,publisher,image,count_of_issues",
+  });
+  return data.results.map(toHit);
+}
+
+/**
+ * Séries dont le nom contient `name` (filtre de la liste des séries, 100 au plus).
+ * Complète la recherche plein texte pour les noms très courants (« Batman » : des dizaines de séries).
+ */
+export async function filterVolumeHits(key: string | undefined, name: string): Promise<VolumeHit[]> {
+  const data = await cv<CvVolume[]>(key, "volumes/", {
+    filter: `name:${name.replace(/[,|]/g, " ")}`,
+    limit: "100",
+    field_list: "id,name,start_year,publisher,image,count_of_issues",
+  });
+  return data.results.map(toHit);
+}

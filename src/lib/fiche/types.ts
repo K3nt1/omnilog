@@ -113,5 +113,5 @@ export interface ComicIssueResponse {
   date: string | null;
   url: string | null;
   /** Ta lecture la plus récente de ce numéro, sinon null. */
-  read: { logId: number; at: string; rating: number | null; review: string | null; count: number } | null;
+  read: { logId: number; at: string; undated: boolean; rating: number | null; review: string | null; count: number } | null;
 }

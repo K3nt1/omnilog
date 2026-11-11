@@ -7,6 +7,9 @@ import { htmlToPlain, RichText } from "../RichText";
 import { PROGRESS_EVENT, useAction } from "../useAction";
 import { StarRating } from "./StarRating";
 
+/** « ✓ Lu le 5 oct. 2026 », ou « ✓ Lu » quand la date est inconnue (import). */
+const readLabel = (read: NonNullable<ComicIssueResponse["read"]>) => (read.undated ? "✓ Lu" : `✓ Lu le ${dateLabel(read.at)}`);
+
 type Loaded =
   | { status: "idle" }
   | { status: "loading" }
@@ -37,7 +40,7 @@ function IssueActions({ entryId, issue, number }: { entryId: number; issue: Comi
     <div className="space-y-1.5 text-right text-xs">
       {issue.read ? (
         <>
-          <p className="text-emerald-300">✓ Lu le {dateLabel(issue.read.at)}</p>
+          <p className="text-emerald-300">{readLabel(issue.read)}</p>
           {issue.read.count > 1 && <p className="text-white/50">{issue.read.count} lectures</p>}
           <div className="flex justify-end">
             <StarRating small value={issue.read.rating} onChange={(r) => save({ rating: r })} disabled={busy !== null} />
@@ -122,7 +125,7 @@ function Issue({ issue, entryId, current }: { issue: ComicIssueResponse; entryId
         {entryId !== null && issue.number !== null ? (
           <IssueActions entryId={entryId} issue={issue} number={issue.number} />
         ) : issue.read ? (
-          <p className="text-right text-xs text-emerald-300">✓ Lu le {dateLabel(issue.read.at)}</p>
+          <p className="text-right text-xs text-emerald-300">{readLabel(issue.read)}</p>
         ) : null}
       </div>
     </li>

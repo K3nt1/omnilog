@@ -2,7 +2,7 @@
 import type { LibraryStatus } from "../types";
 
 /** Taille des paquets envoyés au serveur (limites des Workers gratuits : 50 appels sortants et 50 requêtes D1). */
-export const IMPORT_BATCH_SIZE = { mal: 8, letterboxd: 5 } as const;
+export const IMPORT_BATCH_SIZE = { mal: 8, letterboxd: 5, locg: 5 } as const;
 
 // ---------- MyAnimeList ----------
 
@@ -54,9 +54,50 @@ export interface LetterboxdFilm {
 /** Clé d'une entrée Letterboxd dans import_links : lien du film, ou clé construite pour les orphelins. */
 export const letterboxdLinkKey = (film: Pick<LetterboxdFilm, "uri" | "key">) => film.uri ?? film.key;
 
+// ---------- League of Comic Geeks ----------
+
+/** Un numéro de l'export LoCG (les variantes d'un même numéro sont fusionnées). */
+export interface LocgIssue {
+  number: number;
+  read: boolean;
+  rating: number | null; // 0,5 à 5 étoiles
+}
+
+/** Une série LoCG : une œuvre « comic » chez Omnilog (une série Comic Vine). */
+export interface LocgSeries {
+  key: string; // "locg:DC Comics|Absolute Batman (2024 - Present)" ou "…|Absolute Batman 2025 Annual" pour un annual
+  name: string; // nom cherché chez Comic Vine (« Absolute Batman », « Batman Annual »)
+  label: string; // nom affiché (nom LoCG complet)
+  publisher: string | null;
+  startYear: number | null;
+  issues: LocgIssue[];
+  /** Choix manuel fait dans l'écran de validation (identifiant de série Comic Vine). */
+  forceComicId?: string;
+}
+
+/** Recueil (TP / HC) sans numéro : listé pour être ajouté à la main. */
+export interface LocgCollected {
+  title: string;
+  series: string;
+  publisher: string | null;
+  releaseDate: string | null;
+  read: boolean;
+}
+
+/** Série Comic Vine proposée dans l'écran de validation. */
+export interface ComicCandidate {
+  comicId: string;
+  title: string;
+  year: number | null;
+  publisher: string | null;
+  issueCount: number | null;
+  posterUrl: string | null;
+}
+
 export type ImportRequest =
   | { source: "mal"; items: MalImportItem[] }
-  | { source: "letterboxd"; items: LetterboxdFilm[] };
+  | { source: "letterboxd"; items: LetterboxdFilm[] }
+  | { source: "locg"; items: LocgSeries[] };
 
 // ---------- Réponse ----------
 
@@ -82,6 +123,9 @@ export interface ImportItemResult {
   tmdbType?: "movie" | "tv";
   /** Conflit : clé de l'autre entrée Letterboxd déjà associée à cette fiche. */
   conflictWith?: string;
+  /** League of Comic Geeks : séries Comic Vine proposées, et série retenue. */
+  comicCandidates?: ComicCandidate[];
+  comicId?: string;
 }
 
 export interface ImportCheckResponse {

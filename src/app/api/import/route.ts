@@ -1,9 +1,9 @@
-// POST /api/import  { "source": "letterboxd" | "mal", "items": [...] }
+// POST /api/import  { "source": "letterboxd" | "mal" | "locg", "items": [...] }
 // Reçoit un petit paquet d'œuvres (voir IMPORT_BATCH_SIZE) et renvoie le résultat de chacune.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
-import { importLetterboxdBatch, importMalBatch } from "@/lib/import/server";
-import { IMPORT_BATCH_SIZE, type ImportResponse, type LetterboxdFilm, type MalImportItem } from "@/lib/import/types";
+import { importLetterboxdBatch, importLocgBatch, importMalBatch } from "@/lib/import/server";
+import { IMPORT_BATCH_SIZE, type ImportResponse, type LetterboxdFilm, type LocgSeries, type MalImportItem } from "@/lib/import/types";
 import { isLibraryStatus } from "@/lib/types";
 
 const isString = (v: unknown): v is string => typeof v === "string";
@@ -60,6 +60,26 @@ function isLetterboxdFilm(v: unknown): v is LetterboxdFilm {
   );
 }
 
+function isLocgSeries(v: unknown): v is LocgSeries {
+  const s = v as LocgSeries;
+  return (
+    !!s &&
+    isString(s.key) &&
+    s.key.startsWith("locg:") &&
+    s.key.length <= 400 &&
+    isString(s.name) &&
+    s.name.length > 0 &&
+    s.name.length <= 300 &&
+    isString(s.label) &&
+    isNullableString(s.publisher) &&
+    isNullableNumber(s.startYear) &&
+    Array.isArray(s.issues) &&
+    s.issues.length <= 1000 &&
+    s.issues.every((i) => typeof i.number === "number" && i.number >= 0 && typeof i.read === "boolean" && isNullableNumber(i.rating)) &&
+    (s.forceComicId === undefined || (isString(s.forceComicId) && /^\d{1,12}$/.test(s.forceComicId)))
+  );
+}
+
 export async function POST(request: NextRequest) {
   let body: { source?: unknown; items?: unknown };
   try {
@@ -69,7 +89,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { source, items } = body ?? {};
-  if (source !== "mal" && source !== "letterboxd") {
+  if (source !== "mal" && source !== "letterboxd" && source !== "locg") {
     return NextResponse.json({ error: "Source inconnue." }, { status: 400 });
   }
   if (!Array.isArray(items) || items.length === 0 || items.length > IMPORT_BATCH_SIZE[source]) {
@@ -81,7 +101,10 @@ export async function POST(request: NextRequest) {
 
   const { env } = getCloudflareContext();
   let response: ImportResponse;
-  if (source === "mal") {
+  if (source === "locg") {
+    if (!items.every(isLocgSeries)) return NextResponse.json({ error: "Série League of Comic Geeks invalide." }, { status: 400 });
+    response = { results: await importLocgBatch(env, items) };
+  } else if (source === "mal") {
     if (!items.every(isMalItem)) return NextResponse.json({ error: "Élément MAL invalide." }, { status: 400 });
     response = { results: await importMalBatch(env, items) };
   } else {
