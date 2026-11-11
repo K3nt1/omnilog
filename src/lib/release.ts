@@ -1,9 +1,11 @@
 // Prochaines sorties d'une œuvre en diffusion, enregistrées dans media.release_json :
 // - série : prochain épisode annoncé par TMDB (date seule) ;
 // - anime : prochain épisode et heure exacte, d'après AniList (identifiant MAL) ;
-// - manga : dernier chapitre paru et sa date, d'après MangaDex (pas d'estimation).
+// - manga : dernier chapitre paru et sa date, d'après MangaDex (pas d'estimation) ;
+// - comic : prochain numéro annoncé, sinon dernier paru, d'après Comic Vine (dates en librairie).
 // Rafraîchi à chaque visite de la fiche (MangaDex au plus toutes les 12 h) ; la v0.7 le fera chaque jour.
 import type { MediaFiche } from "./fiche/types";
+import { comicPublication } from "./sources/comicvine";
 import { fetchJson } from "./sources/http";
 import { findMangadexId, latestChapter, mangadexIdFromLink, mangadexLink } from "./sources/mangadex";
 import { releaseNews, seasonNews, type NewsState } from "./news";
@@ -51,7 +53,8 @@ export async function aniListAiring(malId: string): Promise<{ ongoing: boolean; 
 }
 
 const sameRelease = (a: ReleaseInfo | null, b: ReleaseInfo | null) =>
-  (a === null && b === null) || (a !== null && b !== null && a.kind === b.kind && a.label === b.label && a.at === b.at);
+  (a === null && b === null) ||
+  (a !== null && b !== null && a.kind === b.kind && a.label === b.label && a.at === b.at && a.lastLabel === b.lastLabel);
 
 export interface ReleaseMedia {
   id: number;
@@ -70,13 +73,13 @@ export async function refreshRelease(
   env: CloudflareEnv,
   type: MediaType,
   media: ReleaseMedia,
-  fiche: Pick<MediaFiche, "isOngoing" | "nextRelease">,
+  fiche: Pick<MediaFiche, "isOngoing" | "nextRelease"> & { totalChapters?: number | null },
   force = false,
 ): Promise<ReleaseInfo | null> {
   let next: ReleaseInfo | null = media.release;
   try {
-    if (!fiche.isOngoing || type === "movie" || type === "game" || type === "comic") next = null; // comics : sorties en v0.8 partie 2
-    else if (type === "tv") next = fiche.nextRelease;
+    if (!fiche.isOngoing || type === "movie" || type === "game") next = null;
+    else if (type === "tv" || type === "comic") next = fiche.nextRelease;
     else if (type === "anime") next = fiche.nextRelease ?? (await aniListAiring(media.externalId)).next;
     else {
       const checked = media.release?.checkedAt ? Date.parse(media.release.checkedAt) : 0;
@@ -91,13 +94,26 @@ export async function refreshRelease(
     console.error("Prochaine sortie indisponible", type, media.externalId, error);
     return media.release?.label ? media.release : null;
   }
+  // Comic : un nouveau numéro allonge la série (le dernier numéro sert à la terminer une fois lu).
+  const comicTotal =
+    type === "comic" && fiche.totalChapters
+      ? [
+          env.DB.prepare("UPDATE media SET total_chapters = ?1 WHERE id = ?2 AND (total_chapters IS NULL OR total_chapters < ?1)").bind(
+            fiche.totalChapters,
+            media.id,
+          ),
+        ]
+      : [];
   // Manga : on garde la date de vérification même quand rien ne change, pour ne pas redemander à chaque visite.
   if (!sameRelease(next, media.release) || (type === "manga" && next !== null)) {
     await env.DB.batch([
+      ...comicTotal,
       env.DB.prepare("UPDATE media SET release_json = ? WHERE id = ?").bind(next ? JSON.stringify(next) : null, media.id),
       // Épisode annoncé désormais sorti, nouveau chapitre paru : nouveautés.
       ...releaseNews(env.DB, media.id, media.release, next),
     ]);
+  } else if (comicTotal.length > 0) {
+    await comicTotal[0].run();
   }
   return next && next.label ? next : null;
 }
@@ -136,7 +152,7 @@ export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise
   const { results } = await env.DB.prepare(
     `SELECT m.id, m.type, m.external_id, m.title, m.original_title, m.external_links_json, m.release_json, m.news_state_json
      FROM media m
-     WHERE m.is_ongoing = 1 AND m.type IN ('tv', 'anime', 'manga') AND m.external_id IS NOT NULL
+     WHERE m.is_ongoing = 1 AND m.type IN ('tv', 'anime', 'manga', 'comic') AND m.external_id IS NOT NULL
        AND EXISTS (SELECT 1 FROM library_entries l WHERE l.media_id = m.id AND l.status <> 'dropped')
        AND (m.release_checked_at IS NULL OR m.release_checked_at < ?1
             -- Épisode annoncé désormais sorti : revérifié chaque heure jusqu'à ce que la source annonce le suivant.
@@ -185,7 +201,9 @@ export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise
           ? tv
           : row.type === "anime"
             ? await aniListAiring(row.external_id).then((a) => ({ isOngoing: a.ongoing, nextRelease: a.next }))
-            : { isOngoing: true, nextRelease: null };
+            : row.type === "comic"
+              ? await comicPublication(env.COMICVINE_API_KEY, row.external_id)
+              : { isOngoing: true, nextRelease: null };
       if (!fiche.isOngoing) await env.DB.prepare("UPDATE media SET is_ongoing = 0 WHERE id = ?").bind(row.id).run();
       await refreshRelease(env, row.type, media, fiche, true);
     } catch (error) {

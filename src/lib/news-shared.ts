@@ -10,7 +10,7 @@ export const NEWS_LABELS: Record<NewsKind, string> = {
   episode: "Nouveaux épisodes (séries, anime)",
   season: "Nouvelles saisons de séries, même terminées",
   sequel: "Suites d'anime, même terminés",
-  chapter: "Nouveaux chapitres (mangas)",
+  chapter: "Nouveaux chapitres et numéros (mangas, comics)",
   dlc: "DLC et extensions des jeux",
   provider: "Films de la watchlist arrivés sur une plateforme",
 };
