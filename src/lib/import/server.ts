@@ -10,13 +10,25 @@ import {
   type ImportedLog,
   type ImportLink,
 } from "../library";
+import { allIssuesRead, nextUnreadIssue } from "../comic-progress";
+import { filterVolumeHits, getComicVineDetails, searchVolumeHits, type VolumeHit } from "../sources/comicvine";
 import { SourceError } from "../sources/http";
 import { getMalDetails } from "../sources/mal";
 import { getTmdbDetails, searchTmdbMovieHits, tmdbPosterUrl, type TmdbMovieHit } from "../sources/tmdb";
 import { yearOf, type LibraryStatus } from "../types";
 import { letterboxdAddedDate } from "./added-date";
+import { pickComic } from "./locg-match";
 import { pickMatch } from "./match";
-import { letterboxdLinkKey, type ImportItemResult, type LetterboxdFilm, type LetterboxdWatch, type MalImportItem, type MatchCandidate } from "./types";
+import {
+  letterboxdLinkKey,
+  type ComicCandidate,
+  type ImportItemResult,
+  type LetterboxdFilm,
+  type LetterboxdWatch,
+  type LocgSeries,
+  type MalImportItem,
+  type MatchCandidate,
+} from "./types";
 
 /** Exécute `run` sur chaque élément, avec au plus `limit` appels simultanés, dans l'ordre d'origine. */
 export async function mapLimit<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
@@ -205,4 +217,113 @@ export async function importLetterboxdBatch(env: CloudflareEnv, films: Letterbox
 
 export function importMalBatch(env: CloudflareEnv, items: MalImportItem[]): Promise<ImportItemResult[]> {
   return mapLimit(items, 2, (item) => importMalItem(env, item));
+}
+
+// ---------------------------------------------------------------------
+// League of Comic Geeks : correspondance Comic Vine par nom + année + éditeur
+// ---------------------------------------------------------------------
+
+const toComicCandidate = (h: VolumeHit): ComicCandidate => ({
+  comicId: String(h.id),
+  title: h.name,
+  year: h.year,
+  publisher: h.publisher,
+  issueCount: h.issueCount,
+  posterUrl: h.posterUrl,
+});
+
+/**
+ * Statut d'une série d'après les numéros lus :
+ * lue si tous les numéros (#1 au dernier) d'une série terminée sont lus, en cours après le plus haut numéro lu, sinon backlog.
+ */
+export function locgProgress(
+  read: number[],
+  media: { totalChapters: number | null; isOngoing: boolean },
+): { status: LibraryStatus; currentChapter: number | null } {
+  if (read.length === 0) return { status: "planned", currentChapter: null };
+  const highest = Math.max(...read);
+  // Série terminée dont chaque numéro de #1 au dernier est lu → série lue (les numéros #0, #1.5… ne comptent pas).
+  // Lire seulement la fin (Detective Comics #871 à #881) ne suffit pas.
+  if (!media.isOngoing && allIssuesRead(read, media.totalChapters)) return { status: "completed", currentChapter: highest };
+  // Prochain numéro non lu, jamais au-delà du dernier.
+  return { status: "in_progress", currentChapter: nextUnreadIssue(read, highest, media.totalChapters) ?? Math.floor(highest) + 1 };
+}
+
+export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, known: ImportLink | undefined): Promise<ImportItemResult> {
+  const label = series.label;
+  const reuse = series.forceComicId ? undefined : known;
+  try {
+    let mediaId = reuse?.mediaId;
+    let comicId = series.forceComicId;
+    if (mediaId === undefined) {
+      if (!comicId) {
+        const key = env.COMICVINE_API_KEY;
+        let hits = await searchVolumeHits(key, series.name);
+        let outcome = pickComic(series, hits);
+        // Nom très courant (« Batman ») : la bonne série peut manquer aux 20 premiers résultats.
+        if (!outcome.match) {
+          hits = [...hits, ...(await filterVolumeHits(key, series.name).catch(() => []))];
+          outcome = pickComic(series, hits);
+        }
+        if (!outcome.match) {
+          return {
+            key: series.key,
+            label,
+            status: outcome.candidates.length > 0 ? "ambiguous" : "not_found",
+            comicCandidates: outcome.candidates.map(toComicCandidate),
+          };
+        }
+        comicId = String(outcome.match.id);
+      }
+      mediaId = await upsertMedia(env.DB, await getComicVineDetails(env.COMICVINE_API_KEY, comicId));
+    }
+    await saveImportLink(env.DB, "locg", series.key, mediaId);
+
+    const media = await env.DB.prepare("SELECT title, external_id, total_chapters, is_ongoing FROM media WHERE id = ?")
+      .bind(mediaId)
+      .first<{ title: string; external_id: string; total_chapters: number | null; is_ongoing: number }>();
+    if (!media) throw new Error("Série introuvable après l'enregistrement");
+    const read = series.issues.filter((i) => i.read);
+    const { status, currentChapter } = locgProgress(
+      read.map((i) => i.number),
+      { totalChapters: media.total_chapters, isOngoing: media.is_ongoing === 1 },
+    );
+    const entryId = await upsertImportedEntry(env.DB, mediaId, "comic", {
+      status,
+      rating: null, // LoCG note les numéros, pas la série
+      review: null,
+      isFavorite: false,
+      currentEpisode: null,
+      currentChapter,
+      startedAt: null,
+      completedAt: null,
+      addedAt: null, // l'export ne donne pas de date d'ajout
+    });
+    // Un numéro lu = une lecture au journal, sans date (l'export n'en donne pas), avec sa note.
+    const now = new Date().toISOString();
+    await insertImportedLogs(
+      env.DB,
+      entryId,
+      read.map((issue) => ({
+        kind: "chapter",
+        chapter: issue.number,
+        rating: starsToTen(issue.rating),
+        review: null,
+        tags: [],
+        externalRef: `${series.key}#${issue.number}`,
+        loggedAt: now,
+        note: null,
+        undated: true,
+      })),
+    );
+    return { key: series.key, label: media.title, status: reuse ? "updated" : "imported", comicId: media.external_id };
+  } catch (error) {
+    return { key: series.key, label, status: "error", message: errorMessage(error) };
+  }
+}
+
+export async function importLocgBatch(env: CloudflareEnv, items: LocgSeries[]): Promise<ImportItemResult[]> {
+  const known = await findImportLinks(env.DB, "locg", items.map((s) => s.key));
+  // Deux à la fois : Comic Vine surveille les rafales de requêtes.
+  return mapLimit(items, 2, (series) => importLocgSeries(env, series, known.get(series.key)));
 }

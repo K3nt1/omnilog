@@ -4,7 +4,7 @@ import type { ComicIssueResponse } from "./types";
 
 export function matchIssues(
   issues: CvIssue[],
-  logs: { id: number; chapter: number; at: string; rating: number | null; review: string | null }[],
+  logs: { id: number; chapter: number; at: string; rating: number | null; review: string | null; undated?: number }[],
 ): ComicIssueResponse[] {
   // logs : du plus récent au plus ancien, donc la première lecture trouvée est la dernière en date.
   const byNumber = new Map<number, typeof logs>();
@@ -27,7 +27,14 @@ export function matchIssues(
       date: issueDate(issue),
       url: issue.site_detail_url ?? null,
       read: last
-        ? { logId: last.id, at: last.at, rating: last.rating, review: last.review ?? reviewed?.review ?? null, count: reads.length }
+        ? {
+            logId: last.id,
+            at: last.at,
+            undated: last.undated === 1,
+            rating: last.rating,
+            review: last.review ?? reviewed?.review ?? null,
+            count: reads.length,
+          }
         : null,
     };
   });

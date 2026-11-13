@@ -1,4 +1,5 @@
 // Suivi au quotidien : progression (épisode, chapitre, session, pause, fin), focus, tirage au sort, annulation.
+import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID } from "./library";
 import type { LibraryStatus, MediaType } from "./types";
 
@@ -57,6 +58,8 @@ const focusDelete = (db: D1Database, entryId: number) => db.prepare("DELETE FROM
 
 interface LoadedEntry extends EntryState {
   id: number;
+  /** Comics : numéros déjà lus (journal). */
+  read_issues?: number[];
   media_type: MediaType;
   external_id: string | null;
   total_episodes: number | null;
@@ -97,7 +100,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const loggedAt = (date: string | undefined) => (date && date !== today() ? `${date}T12:00:00.000Z` : new Date().toISOString());
 
 async function loadEntry(db: D1Database, entryId: number) {
-  const [entryRows, seasonRows, focusRows] = await db.batch<Record<string, unknown>>([
+  const [entryRows, seasonRows, focusRows, readRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
         `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => (c === "is_focus" ? `${FOCUS_EXPR} AS is_focus` : `l.${c}`)).join(", ")},
@@ -119,9 +122,16 @@ async function loadEntry(db: D1Database, entryId: number) {
          WHERE l.id = ? AND f.entry_id <> l.id`,
       )
       .bind(entryId),
+    db
+      .prepare(
+        `SELECT DISTINCT p.chapter FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
+         WHERE p.entry_id = ? AND l.media_type = 'comic' AND p.kind = 'chapter' AND p.chapter IS NOT NULL`,
+      )
+      .bind(entryId),
   ]);
   const entry = entryRows.results[0] as unknown as LoadedEntry | undefined;
   if (!entry) return null;
+  if (entry.media_type === "comic") entry.read_issues = (readRows.results as { chapter: number }[]).map((r) => r.chapter);
   const seasons = (seasonRows.results as { season_number: number; episode_count: number }[]).map((s) => ({
     season: s.season_number,
     episodes: s.episode_count,
@@ -153,8 +163,6 @@ interface Plan {
   completed?: boolean;
   /** Épisodes sautés à cocher aussi (de la position actuelle jusqu'à l'épisode coché), à la même date. */
   bulkEpisodes?: { season: number; episode: number; at: string }[];
-  /** Numéros sautés (comic) à cocher aussi, à la même date. */
-  bulkChapters?: { chapter: number; at: string }[];
 }
 
 /** Lecture d'un chapitre (manga) ou d'un numéro (comic). */
@@ -191,6 +199,21 @@ export function planAction(
   action: Exclude<ProgressAction, { kind: "undo" }>,
 ): Plan {
   const started = entry.started_at ?? today();
+  /**
+   * Comic : lecture d'un numéro. La position passe au prochain numéro non lu (jamais au-delà du dernier) ;
+   * la série est lue quand elle est terminée et que chaque numéro de #1 au dernier l'est.
+   */
+  const readIssue = (issue: number, log: Plan["logs"][number], date: string | undefined): Plan => {
+    const read = [...(entry.read_issues ?? []), issue];
+    if (!entry.is_ongoing && allIssuesRead(read, entry.total_chapters)) {
+      const done = complete(date);
+      return { ...done, set: { ...done.set, current_chapter: Math.floor(entry.total_chapters ?? issue) }, logs: [log, ...done.logs] };
+    }
+    // Relire un numéro déjà dépassé ne fait pas reculer la position.
+    const after = Math.max(issue, (entry.current_chapter ?? 1) - 1);
+    const next = nextUnreadIssue(read, after, entry.total_chapters) ?? Math.floor(issue) + 1;
+    return { set: { ...progressing, current_chapter: next, pause_page: null }, logs: [log], takeFocus: autoFocus };
+  };
   const progressing = { status: "in_progress" as LibraryStatus, started_at: started, drawn_at: null };
   // Une œuvre sur laquelle on avance devient le focus s'il n'y en a pas déjà un pour ce type.
   const autoFocus = !otherFocus;
@@ -305,6 +328,7 @@ export function planAction(
       if (!isReading(entry.media_type)) throw new ProgressError("Pas de chapitres pour ce type.");
       const chapter = entry.current_chapter ?? 1;
       const log = { kind: "chapter", chapter, at: loggedAt(action.date) };
+      if (entry.media_type === "comic") return readIssue(chapter, log, action.date);
       // Comic : le dernier numéro connu ne termine la série que si elle n'est plus publiée.
       const last = entry.media_type === "manga" || !entry.is_ongoing;
       if (last && entry.total_chapters && chapter >= entry.total_chapters) {
@@ -416,30 +440,8 @@ export function planAction(
         rating: action.rating ?? null,
         review: action.review?.trim() || null,
       };
-      const current = entry.current_chapter ?? 1;
-      // Numéro plus ancien que la position : simple lecture au journal, la position ne bouge pas.
-      if (action.issue < current) {
-        const status = entry.status === "planned" ? progressing : {};
-        return { set: status, logs: [log], takeFocus: entry.status === "planned" && autoFocus };
-      }
-      // Les numéros entiers entre la position et celui coché sont considérés comme lus.
-      const skipped: { chapter: number; at: string }[] = [];
-      for (let n = Math.ceil(current); n < action.issue && skipped.length < 500; n++) skipped.push({ chapter: n, at: log.at });
-      if (!entry.is_ongoing && entry.total_chapters && action.issue >= entry.total_chapters) {
-        const done = complete(action.date);
-        return {
-          ...done,
-          set: { ...done.set, current_chapter: action.issue },
-          logs: [log, ...done.logs],
-          bulkChapters: skipped,
-        };
-      }
-      return {
-        set: { ...progressing, current_chapter: Math.floor(action.issue) + 1, pause_page: null },
-        logs: [log],
-        takeFocus: autoFocus,
-        bulkChapters: skipped,
-      };
+      // Seulement ce numéro : on lit souvent des numéros isolés (pas de cochage des précédents).
+      return readIssue(action.issue, log, action.date);
     }
   }
 }
@@ -499,18 +501,6 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
                                AND p.season = json_extract(value, '$[0]') AND p.episode = json_extract(value, '$[1]'))`,
           )
           .bind(entryId, plan.bulkEpisodes[0].at, undo, JSON.stringify(plan.bulkEpisodes.map((e) => [e.season, e.episode]))),
-      );
-    }
-    if (plan.bulkChapters && plan.bulkChapters.length > 0) {
-      statements.push(
-        db
-          .prepare(
-            `INSERT INTO progress_log (entry_id, kind, chapter, logged_at, undo_json)
-             SELECT ?1, 'chapter', value, ?2, ?3
-             FROM json_each(?4)
-             WHERE NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = ?1 AND p.kind = 'chapter' AND p.chapter = value)`,
-          )
-          .bind(entryId, plan.bulkChapters[0].at, undo, JSON.stringify(plan.bulkChapters.map((c) => c.chapter))),
       );
     }
     for (const log of plan.logs) {

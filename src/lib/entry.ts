@@ -407,16 +407,16 @@ export async function getEpisodeLogs(
 export async function getIssueLogs(
   db: D1Database,
   externalId: string,
-): Promise<{ id: number; chapter: number; at: string; rating: number | null; review: string | null }[]> {
+): Promise<{ id: number; chapter: number; at: string; rating: number | null; review: string | null; undated: number }[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.chapter, p.logged_at AS at, p.rating, p.review
+      `SELECT p.id, p.chapter, p.logged_at AS at, p.rating, p.review, p.undated
        FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
        WHERE l.user_id = ? AND m.type = 'comic' AND m.source = 'comicvine' AND m.external_id = ?
          AND p.kind = 'chapter' AND p.chapter IS NOT NULL
        ORDER BY p.logged_at DESC, p.id DESC`,
     )
     .bind(CURRENT_USER_ID, externalId)
-    .all<{ id: number; chapter: number; at: string; rating: number | null; review: string | null }>();
+    .all<{ id: number; chapter: number; at: string; rating: number | null; review: string | null; undated: number }>();
   return results;
 }
