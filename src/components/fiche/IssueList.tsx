@@ -134,7 +134,7 @@ function Issue({ issue, entryId, current }: { issue: ComicIssueResponse; entryId
 
 /**
  * Numéros d'une série de comics : la liste se charge à l'ouverture (Comic Vine limite le nombre de requêtes).
- * Cocher un numéro coche aussi ceux d'avant, depuis l'endroit où tu en es.
+ * Cocher un numéro ne coche que lui : on lit souvent des numéros isolés.
  */
 export function IssueList({
   comicId,

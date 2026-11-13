@@ -10,6 +10,7 @@ import {
   type ImportedLog,
   type ImportLink,
 } from "../library";
+import { allIssuesRead, nextUnreadIssue } from "../comic-progress";
 import { filterVolumeHits, getComicVineDetails, searchVolumeHits, type VolumeHit } from "../sources/comicvine";
 import { SourceError } from "../sources/http";
 import { getMalDetails } from "../sources/mal";
@@ -241,17 +242,11 @@ export function locgProgress(
 ): { status: LibraryStatus; currentChapter: number | null } {
   if (read.length === 0) return { status: "planned", currentChapter: null };
   const highest = Math.max(...read);
-  // Série terminée dont chaque numéro de #1 au dernier est lu → série lue. Les numéros hors série (#0, #1.5…)
-  // ne comptent pas : Comic Vine les inclut dans son nombre de numéros, ce qui empêchait de finir des séries lues en entier.
+  // Série terminée dont chaque numéro de #1 au dernier est lu → série lue (les numéros #0, #1.5… ne comptent pas).
   // Lire seulement la fin (Detective Comics #871 à #881) ne suffit pas.
-  const total = media.totalChapters;
-  if (!media.isOngoing && total !== null && total >= 1) {
-    const done = new Set(read);
-    let all = true;
-    for (let n = 1; n <= Math.floor(total) && all; n++) all = done.has(n);
-    if (all) return { status: "completed", currentChapter: highest };
-  }
-  return { status: "in_progress", currentChapter: Math.floor(highest) + 1 };
+  if (!media.isOngoing && allIssuesRead(read, media.totalChapters)) return { status: "completed", currentChapter: highest };
+  // Prochain numéro non lu, jamais au-delà du dernier.
+  return { status: "in_progress", currentChapter: nextUnreadIssue(read, highest, media.totalChapters) ?? Math.floor(highest) + 1 };
 }
 
 export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, known: ImportLink | undefined): Promise<ImportItemResult> {
