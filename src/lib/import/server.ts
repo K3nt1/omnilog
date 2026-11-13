@@ -233,7 +233,7 @@ const toComicCandidate = (h: VolumeHit): ComicCandidate => ({
 
 /**
  * Statut d'une série d'après les numéros lus :
- * lue si le dernier numéro d'une série terminée est lu, en cours après le plus haut numéro lu, sinon backlog.
+ * lue si tous les numéros (#1 au dernier) d'une série terminée sont lus, en cours après le plus haut numéro lu, sinon backlog.
  */
 export function locgProgress(
   read: number[],
@@ -241,8 +241,16 @@ export function locgProgress(
 ): { status: LibraryStatus; currentChapter: number | null } {
   if (read.length === 0) return { status: "planned", currentChapter: null };
   const highest = Math.max(...read);
-  // Dernier numéro d'une série terminée lu → série lue (comme quand on coche ce numéro à la main).
-  if (!media.isOngoing && media.totalChapters !== null && highest >= media.totalChapters) return { status: "completed", currentChapter: highest };
+  // Série terminée dont chaque numéro de #1 au dernier est lu → série lue. Les numéros hors série (#0, #1.5…)
+  // ne comptent pas : Comic Vine les inclut dans son nombre de numéros, ce qui empêchait de finir des séries lues en entier.
+  // Lire seulement la fin (Detective Comics #871 à #881) ne suffit pas.
+  const total = media.totalChapters;
+  if (!media.isOngoing && total !== null && total >= 1) {
+    const done = new Set(read);
+    let all = true;
+    for (let n = 1; n <= Math.floor(total) && all; n++) all = done.has(n);
+    if (all) return { status: "completed", currentChapter: highest };
+  }
   return { status: "in_progress", currentChapter: Math.floor(highest) + 1 };
 }
 
