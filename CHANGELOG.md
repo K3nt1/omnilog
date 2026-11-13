@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0](https://github.com/K3nt1/omnilog/compare/v0.7.3...v0.8.0) (2026-11-13)
+
+
+### ✨ Nouveautés
+
+* **comics:** nouveau type Comics avec Comic Vine (recherche, fiche, numéros) ([#76](https://github.com/K3nt1/omnilog/issues/76)) ([6e5fb08](https://github.com/K3nt1/omnilog/commit/6e5fb08ac3bec5f0c069bd343d8765681af9b887))
+* **comics:** prochaines sorties et nouveautés des comics (Comic Vine) ([#77](https://github.com/K3nt1/omnilog/issues/77)) ([66efc70](https://github.com/K3nt1/omnilog/commit/66efc7043a0b66e6c97fcf826418201097642c70))
+* **import:** import League of Comic Geeks (séries, numéros lus, notes) ([#78](https://github.com/K3nt1/omnilog/issues/78)) ([8f5cc28](https://github.com/K3nt1/omnilog/commit/8f5cc2897a4b43ece537d7e937c6718557da55ad))
+* **reglages:** interrupteur pour inclure le contenu pour adultes dans la recherche ([#75](https://github.com/K3nt1/omnilog/issues/75)) ([61c121c](https://github.com/K3nt1/omnilog/commit/61c121c4b89ff88af8e05d87b742ba6e4ce29d1f))
+* **reglages:** tri par défaut de la bibliothèque et de chaque page de type ([#79](https://github.com/K3nt1/omnilog/issues/79)) ([23ac131](https://github.com/K3nt1/omnilog/commit/23ac131405d63d96ec442d68d49b6e1ee1511535))
+
 ## [0.7.3](https://github.com/K3nt1/omnilog/compare/v0.7.2...v0.7.3) (2026-11-10)
 
 
