@@ -4,6 +4,7 @@ import { GeneralSettings } from "@/components/settings/GeneralSettings";
 import { NotificationsCard } from "@/components/settings/NotificationsCard";
 import { NewsSettings } from "@/components/settings/NewsSettings";
 import { RemindersEditor } from "@/components/settings/RemindersEditor";
+import { SortSettings } from "@/components/settings/SortSettings";
 import { getNewsKinds } from "@/lib/news";
 import { listReminders } from "@/lib/reminders";
 import { getSettings, REGIONS } from "@/lib/settings";
@@ -35,6 +36,9 @@ export default async function SettingsPage() {
       </Card>
       <Card title="Nouveautés">
         <NewsSettings key={newsKinds} mask={newsKinds} region={settings.watchRegion} />
+      </Card>
+      <Card title="Tri par défaut">
+        <SortSettings defaultSorts={settings.defaultSorts} />
       </Card>
       <Card title="Général">
         <GeneralSettings key={`${settings.timezone}-${settings.timezoneAuto}-${settings.watchRegion}-${settings.searchAdult}`} settings={settings} regions={REGIONS} />

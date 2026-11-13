@@ -8,6 +8,7 @@ import { TYPE_LABELS, TYPE_SLUGS, typeFromSlug } from "@/lib/labels";
 import { cookies } from "next/headers";
 import { pageSizeFor, parseViewCookie, VIEW_COOKIE } from "@/lib/browse-shared";
 import { parseLibraryQuery, type RawSearchParams } from "@/lib/library-url";
+import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function TypeListPage({ params, searchParams }: Props) {
   const type = typeFromSlug((await params).type);
   if (!type) notFound();
-  const query = parseLibraryQuery(await searchParams, type);
-  const prefs = parseViewCookie((await cookies()).get(VIEW_COOKIE)?.value);
   const { env } = getCloudflareContext();
+  const { defaultSorts } = await getSettings(env.DB);
+  const query = parseLibraryQuery(await searchParams, type, defaultSorts);
+  const prefs = parseViewCookie((await cookies()).get(VIEW_COOKIE)?.value);
   const data = await getLibraryPage(env.DB, query, pageSizeFor(prefs));
   const base = `/${TYPE_SLUGS[type]}`;
 

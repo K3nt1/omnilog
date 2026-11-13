@@ -1,6 +1,16 @@
 // Filtres de la bibliothèque <-> adresse de la page (?statut=…&tri=…), pour pouvoir mettre une vue en favori.
 // Utilisable côté serveur comme côté navigateur (aucun accès à la base).
-import { DEFAULT_DIRECTION, RATING_FILTERS, SORT_KEYS, sortsFor, type LibraryQuery, type RatingFilter, type SortKey } from "./browse-shared";
+import {
+  BUILTIN_SORT,
+  directionFor,
+  RATING_FILTERS,
+  SORT_KEYS,
+  sortsFor,
+  type DefaultSorts,
+  type LibraryQuery,
+  type RatingFilter,
+  type SortKey,
+} from "./browse-shared";
 import { STATUS_SLUGS, statusFromSlug, TYPE_SLUGS, typeFromSlug } from "./labels";
 import type { MediaType } from "./types";
 
@@ -8,14 +18,19 @@ export type RawSearchParams = Record<string, string | string[] | undefined>;
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
-/** Lit les filtres depuis l'adresse. `fixedType` = type imposé par la page (/films/liste). */
-export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType | null = null): LibraryQuery {
+/**
+ * Lit les filtres depuis l'adresse. `fixedType` = type imposé par la page (/films/liste).
+ * `defaults` = tris par défaut des réglages : celui du type affiché (ou « all ») s'applique sans « tri » dans l'adresse.
+ */
+export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType | null = null, defaults: DefaultSorts = {}): LibraryQuery {
   const type = fixedType ?? typeFromSlug(first(params.type));
   const sortParam = first(params.tri);
   const allowed = sortsFor(type);
+  const chosen = defaults[type ?? "all"];
+  const defaultSort = chosen && allowed.includes(chosen.sort) ? chosen : BUILTIN_SORT;
   const sort: SortKey = (SORT_KEYS as readonly string[]).includes(sortParam ?? "") && allowed.includes(sortParam as SortKey)
     ? (sortParam as SortKey)
-    : "activite";
+    : defaultSort.sort;
   const order = first(params.ordre);
   const rating = first(params.note);
   const page = Number.parseInt(first(params.page) ?? "1", 10);
@@ -42,7 +57,8 @@ export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType 
     platform: type === "game" ? first(params.plateforme)?.slice(0, 40) || null : null,
     search: (first(params.q) ?? "").slice(0, 100),
     sort,
-    direction: order === "asc" || order === "desc" ? order : DEFAULT_DIRECTION[sort],
+    direction: order === "asc" || order === "desc" ? order : directionFor(sort, defaultSort),
+    defaultSort,
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
 }
@@ -53,7 +69,8 @@ export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType 
  */
 export function libraryHref(basePath: string, q: LibraryQuery, change: Partial<LibraryQuery> = {}, fixedType = false): string {
   const next: LibraryQuery = { ...q, page: 1, ...change };
-  if (change.sort && !change.direction) next.direction = DEFAULT_DIRECTION[change.sort];
+  const fallback = next.defaultSort ?? BUILTIN_SORT;
+  if (change.sort && !change.direction) next.direction = directionFor(change.sort, fallback);
   const params = new URLSearchParams();
   if (next.type && !fixedType) params.set("type", TYPE_SLUGS[next.type]);
   if (next.status) params.set("statut", STATUS_SLUGS[next.status]);
@@ -68,8 +85,8 @@ export function libraryHref(basePath: string, q: LibraryQuery, change: Partial<L
   if (next.tag) params.set("tag", next.tag);
   if (next.platform && next.type === "game") params.set("plateforme", next.platform);
   if (next.search.trim()) params.set("q", next.search.trim());
-  if (next.sort !== "activite") params.set("tri", next.sort);
-  if (next.direction !== DEFAULT_DIRECTION[next.sort]) params.set("ordre", next.direction);
+  if (next.sort !== fallback.sort) params.set("tri", next.sort);
+  if (next.direction !== directionFor(next.sort, fallback)) params.set("ordre", next.direction);
   if (next.page > 1) params.set("page", String(next.page));
   const query = params.toString();
   return query ? `${basePath}?${query}` : basePath;
