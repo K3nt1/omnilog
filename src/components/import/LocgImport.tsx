@@ -6,7 +6,6 @@ import { buildLocgSeries, type LocgSummary } from "@/lib/import/locg-parse";
 import { IMPORT_BATCH_SIZE, type ComicCandidate, type ImportItemResult, type LocgSeries } from "@/lib/import/types";
 import { readZipTextFiles } from "@/lib/import/unzip";
 import { readXlsxRows } from "@/lib/import/xlsx";
-import { dateLabel } from "@/lib/labels";
 import type { SearchResponse } from "@/lib/types";
 
 const STATUS_LABELS: Record<ImportItemResult["status"], string> = {
@@ -48,7 +47,7 @@ export function LocgImport({ disabled }: { disabled: boolean }) {
     try {
       const files = await readZipTextFiles(await file.arrayBuffer(), (path) => path.startsWith("xl/"));
       const summary = buildLocgSeries(readXlsxRows(files));
-      if (summary.series.length === 0 && summary.collected.length === 0) throw new Error("Aucun comic trouvé dans ce fichier.");
+      if (summary.series.length === 0) throw new Error("Aucun comic trouvé dans ce fichier.");
       setData(summary);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Fichier League of Comic Geeks illisible.");
@@ -96,8 +95,13 @@ export function LocgImport({ disabled }: { disabled: boolean }) {
           <div className="mt-4 space-y-3 text-sm">
             <p className="text-white/80">
               {data.series.length} séries · {data.counts.issues} numéros · {data.counts.read} lus · {data.counts.rated} notés
-              {data.collected.length > 0 && ` · ${data.collected.length} recueils (listés plus bas)`}
             </p>
+            {data.compilations > 0 && (
+              <p className="rounded-lg bg-amber-500/10 px-4 py-2 text-amber-200">
+                {data.compilations} recueil{data.compilations > 1 ? "s" : ""} (HC, TP) ignoré{data.compilations > 1 ? "s" : ""} : vérifie
+                quels numéros ils compilent et ajoute-les plus tard à la main via la recherche.
+              </p>
+            )}
             <p className="text-xs text-white/50">
               Environ {Math.ceil(data.series.length / IMPORT_BATCH_SIZE.locg)} paquets. Comic Vine limite à 200 recherches par
               heure : si des séries finissent en erreur « limite de requêtes », réessaie-les plus tard. Les séries déjà
@@ -185,35 +189,6 @@ export function LocgImport({ disabled }: { disabled: boolean }) {
         </section>
       )}
 
-      {data && data.collected.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-1 text-xl font-semibold">Recueils à ajouter à la main ({data.collected.length})</h2>
-          <p className="mb-3 text-sm text-white/60">
-            Albums sans numéro (TP, HC) : ils ne sont pas importés. Cherche l&apos;édition voulue (par exemple chez Urban Comics) et
-            ajoute-la à ta bibliothèque.
-          </p>
-          <ul className="divide-y divide-white/10 rounded-xl border border-white/10 text-sm">
-            {data.collected.map((c) => (
-              <li key={`${c.series}|${c.title}`} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
-                <span>
-                  {c.title}
-                  <span className="ml-2 text-xs text-white/50">
-                    {[c.publisher, c.releaseDate ? dateLabel(c.releaseDate) : null, c.read ? "lu" : "pas lu"].filter(Boolean).join(" · ")}
-                  </span>
-                </span>
-                <a
-                  href={`/recherche?q=${encodeURIComponent(c.series.replace(/\s*\(.*$/, ""))}&types=comic`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-sky-300 hover:underline"
-                >
-                  Chercher ↗
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </>
   );
 }

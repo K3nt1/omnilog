@@ -1,8 +1,9 @@
 // Lit l'export Excel de League of Comic Geeks (une ligne par numéro) et le regroupe par série.
 // Colonnes utiles : Publisher Name, Series Name, Full Title, Release Date, Marked Read, My Rating.
 // Collection, liste d'envies, prix… ne sont pas repris : Omnilog ne garde que lu / pas lu.
+// Les recueils (HC, TP) sont ignorés : leurs numéros s'ajoutent à la main.
 import type { Cell } from "./xlsx";
-import type { LocgCollected, LocgIssue, LocgSeries } from "./types";
+import type { LocgIssue, LocgSeries } from "./types";
 
 /** « Batman (Vol. 2) (2011 - 2016) » → { name: "Batman", startYear: 2011 }. */
 export function parseSeriesName(series: string): { name: string; startYear: number | null } {
@@ -26,7 +27,8 @@ export const comparableName = (value: string) =>
 
 export interface LocgSummary {
   series: LocgSeries[];
-  collected: LocgCollected[];
+  /** Recueils (HC, TP) ignorés : souvent des éditions françaises que Comic Vine ne connaît pas. */
+  compilations: number;
   counts: { rows: number; issues: number; read: number; rated: number };
 }
 
@@ -49,7 +51,7 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
   }
 
   const groups = new Map<string, LocgSeries & { byNumber: Map<number, LocgIssue> }>();
-  const collected: LocgCollected[] = [];
+  let compilations = 0;
   let issues = 0;
   for (const row of rows.slice(1)) {
     const seriesName = text(row[c.series]);
@@ -58,10 +60,14 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
     const publisher = text(row[c.publisher]) || null;
     const releaseDate = /^\d{4}-\d{2}-\d{2}/.test(text(row[c.date])) ? text(row[c.date]).slice(0, 10) : null;
     const read = flag(row[c.read]);
-    const issue = title.match(/^(.*?)\s*#(\d+(?:\.\d+)?)\b/);
+    let issue = title.match(/^(.*?)\s*#(\d+(?:\.\d+)?)\b/);
     if (!issue) {
-      collected.push({ title, series: seriesName, publisher, releaseDate, read });
-      continue;
+      if (/\b(HC|TP)\b/.test(title)) {
+        compilations++;
+        continue;
+      }
+      // Sans numéro mais pas un recueil (one-shot) : un numéro 1 dans sa série.
+      issue = ["", "", "1"] as unknown as RegExpMatchArray;
     }
     issues++;
     const parsed = parseSeriesName(seriesName);
@@ -102,7 +108,7 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
   const all = series.flatMap((s) => s.issues);
   return {
     series: series.sort((a, b) => a.label.localeCompare(b.label)),
-    collected,
-    counts: { rows: issues + collected.length, issues: all.length, read: all.filter((i) => i.read).length, rated: all.filter((i) => i.rating !== null).length },
+    compilations,
+    counts: { rows: issues + compilations, issues: all.length, read: all.filter((i) => i.read).length, rated: all.filter((i) => i.rating !== null).length },
   };
 }

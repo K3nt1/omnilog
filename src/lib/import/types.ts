@@ -75,15 +75,6 @@ export interface LocgSeries {
   forceComicId?: string;
 }
 
-/** Recueil (TP / HC) sans numéro : listé pour être ajouté à la main. */
-export interface LocgCollected {
-  title: string;
-  series: string;
-  publisher: string | null;
-  releaseDate: string | null;
-  read: boolean;
-}
-
 /** Série Comic Vine proposée dans l'écran de validation. */
 export interface ComicCandidate {
   comicId: string;
