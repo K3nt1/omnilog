@@ -96,6 +96,8 @@ export interface LibraryCard {
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  /** Comics : numéros lus (dans le désordre possible : achats isolés, numéros lus dans un recueil). */
+  readIssues: number[] | null;
   currentVolume: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;
