@@ -1,4 +1,4 @@
-// Nouveautés sur ce que tu suis : nouvel épisode, nouvelle saison, suite d'anime, nouveau chapitre,
+// Nouveautés sur ce que tu suis : nouvel épisode, nouvelle saison, suite d'anime, nouveau chapitre ou numéro de comic,
 // DLC d'un jeu, film de la watchlist arrivé sur une plateforme.
 // - Épisodes et chapitres : déduits du rafraîchissement des prochaines sorties (release.ts).
 // - Le reste : vérifications lentes (checkDueNews), par petits lots dans la tâche programmée.
@@ -56,6 +56,13 @@ const aired = (r: ReleaseInfo, now: number) => !!r.at && Date.parse(r.at.length 
  */
 export function releaseNews(db: D1Database, mediaId: number, before: ReleaseInfo | null, after: ReleaseInfo | null, now = Date.now()): D1PreparedStatement[] {
   if (!before?.label) return [];
+  // Comics : nouveauté quand le dernier numéro paru change (le prochain peut déjà être annoncé).
+  if (before.lastLabel !== undefined || after?.lastLabel !== undefined) {
+    if (before.lastLabel && after?.lastLabel && after.lastLabel !== before.lastLabel) {
+      return [addNews(db, { mediaId, kind: "chapter", label: `${after.lastLabel} paru`, key: `chapter:${mediaId}:${after.lastLabel}` })];
+    }
+    return [];
+  }
   if (before.kind === "next" && aired(before, now) && after?.label !== before.label) {
     return [addNews(db, { mediaId, kind: "episode", label: `${before.label} disponible`, key: `episode:${mediaId}:${before.label}` })];
   }

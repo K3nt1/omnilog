@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { LibraryEntry } from "@/lib/entry";
-import { clockLabel, durationLabel, positionLine, statusLabel } from "@/lib/labels";
+import { clockLabel, durationLabel, issueLabel, positionLine, statusLabel } from "@/lib/labels";
 import type { MediaType, SeasonInfo } from "@/lib/types";
 import { useAction } from "../useAction";
 
@@ -63,10 +63,13 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         ? `épisode ${entry.currentEpisode ?? 1}${totalEpisodes ? ` / ${totalEpisodes}` : ""}`
         : type === "manga"
           ? `chapitre ${(entry.currentChapter ?? 1).toLocaleString("fr-FR")}${totalChapters ? ` / ${totalChapters}` : ""}`
-          : null;
+          : type === "comic"
+            ? `${issueLabel(entry.currentChapter ?? 1)}${totalChapters ? ` / ${totalChapters}` : ""}`
+            : null;
+  const reading = type === "manga" || type === "comic";
 
   const savePause = () => {
-    if (type === "manga") {
+    if (reading) {
       const p = Number(page);
       if (Number.isInteger(p) && p > 0) act("pause", { kind: "pause", page: p });
       return;
@@ -107,15 +110,15 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => act("step", { kind: type === "manga" ? "chapter" : "episode", date })}
+            onClick={() => act("step", { kind: reading ? "chapter" : "episode", date })}
             disabled={busy !== null}
             className={primary}
           >
-            {busy === "step" ? "…" : `✓ ${type === "manga" ? "Lu" : "Vu"} : ${next}`}
+            {busy === "step" ? "…" : `✓ ${reading ? "Lu" : "Vu"} : ${next}`}
           </button>
           {dateField}
           <button type="button" onClick={() => setEditing((v) => !v)} className="text-xs text-sky-300 hover:underline">
-            {editing ? "Fermer" : type === "manga" ? "Changer de tome / chapitre" : "Changer d'épisode"}
+            {editing ? "Fermer" : type === "manga" ? "Changer de tome / chapitre" : type === "comic" ? "Changer de numéro" : "Changer d'épisode"}
           </button>
         </div>
       )}
@@ -196,6 +199,12 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
               </label>
             </>
           )}
+          {type === "comic" && (
+            <label className="flex items-center gap-1">
+              Numéro
+              <input type="number" min={0} step="any" value={chapter} onChange={(e) => setChapter(Number(e.target.value))} className={`${field} w-28`} />
+            </label>
+          )}
           <button
             type="button"
             disabled={busy !== null}
@@ -217,11 +226,11 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         </div>
       )}
 
-      {/* Pause : film / épisode (minutage) ou page (manga). */}
+      {/* Pause : film / épisode (minutage) ou page (manga, comic). */}
       {!done && type !== "game" && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-white/70">⏸ {type === "manga" ? "Page" : "Pause à"}</span>
-          {type === "manga" ? (
+          <span className="text-white/70">⏸ {reading ? "Page" : "Pause à"}</span>
+          {reading ? (
             <input type="number" min={1} value={page} onChange={(e) => setPage(e.target.value)} placeholder="12" className={`${field} w-24`} />
           ) : (
             <input value={pause} onChange={(e) => setPause(e.target.value)} placeholder="1:12:30" className={`${field} w-28`} aria-label="Minutage" />
@@ -274,7 +283,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
           <button type="button" onClick={() => act("complete", { kind: "complete", date })} disabled={busy !== null} className={secondary}>
             {busy === "complete" ? "…" : `✓ ${type === "movie" ? "Vu" : "Terminé"}`}
           </button>
-          {type !== "tv" && type !== "anime" && type !== "manga" && dateField}
+          {type !== "tv" && type !== "anime" && !reading && dateField}
           <span className="text-xs text-white/50">
             {type === "movie" ? "Ajoute un visionnage au journal." : "Passe l'œuvre en terminée et la compte dans ton journal."}
           </span>

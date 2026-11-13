@@ -1,3 +1,4 @@
+import { getComicVineFiche } from "./comicvine";
 import { getIgdbFiche } from "./igdb";
 import { getMalFiche } from "./mal";
 import { getTmdbFiche } from "./tmdb";
@@ -17,5 +18,7 @@ export function getFiche(env: CloudflareEnv, type: MediaType, externalId: string
       return getMalFiche(env.MAL_CLIENT_ID, type, externalId);
     case "game":
       return getIgdbFiche(env, externalId);
+    case "comic":
+      return getComicVineFiche(env.COMICVINE_API_KEY, externalId);
   }
 }

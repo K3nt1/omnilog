@@ -54,6 +54,19 @@ function parseAction(body: Record<string, unknown>): ProgressAction | null {
         review: typeof body.review === "string" ? body.review.slice(0, 20000) : undefined,
       };
     }
+    case "markIssue": {
+      const issue = num(body.issue);
+      const rating = body.rating === null ? null : int(body.rating);
+      if (issue === undefined) return null;
+      if (rating !== undefined && rating !== null && (rating < 1 || rating > 10)) return null;
+      return {
+        kind: "markIssue",
+        issue,
+        date: date(body.date),
+        rating,
+        review: typeof body.review === "string" ? body.review.slice(0, 20000) : undefined,
+      };
+    }
     case "complete": {
       const rating = body.rating === null ? null : int(body.rating);
       if (rating !== undefined && rating !== null && (rating < 1 || rating > 10)) return null;

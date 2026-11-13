@@ -1,4 +1,5 @@
 // Suivi au quotidien : progression (épisode, chapitre, session, pause, fin), focus, tirage au sort, annulation.
+import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID } from "./library";
 import type { LibraryStatus, MediaType } from "./types";
 
@@ -57,6 +58,8 @@ const focusDelete = (db: D1Database, entryId: number) => db.prepare("DELETE FROM
 
 interface LoadedEntry extends EntryState {
   id: number;
+  /** Comics : numéros déjà lus (journal). */
+  read_issues?: number[];
   media_type: MediaType;
   external_id: string | null;
   total_episodes: number | null;
@@ -86,6 +89,8 @@ export type ProgressAction =
   | { kind: "complete"; date?: string; rating?: number | null; review?: string | null }
   /** Épisode précis coché dans la liste des saisons (série), avec note et critique facultatives. */
   | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
+  /** Numéro précis coché dans la liste des numéros (comic), avec note et critique facultatives. */
+  | { kind: "markIssue"; issue: number; date?: string; rating?: number | null; review?: string | null }
   | { kind: "undo" };
 
 export class ProgressError extends Error {}
@@ -95,7 +100,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const loggedAt = (date: string | undefined) => (date && date !== today() ? `${date}T12:00:00.000Z` : new Date().toISOString());
 
 async function loadEntry(db: D1Database, entryId: number) {
-  const [entryRows, seasonRows, focusRows] = await db.batch<Record<string, unknown>>([
+  const [entryRows, seasonRows, focusRows, readRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
         `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => (c === "is_focus" ? `${FOCUS_EXPR} AS is_focus` : `l.${c}`)).join(", ")},
@@ -117,9 +122,16 @@ async function loadEntry(db: D1Database, entryId: number) {
          WHERE l.id = ? AND f.entry_id <> l.id`,
       )
       .bind(entryId),
+    db
+      .prepare(
+        `SELECT DISTINCT p.chapter FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
+         WHERE p.entry_id = ? AND l.media_type = 'comic' AND p.kind = 'chapter' AND p.chapter IS NOT NULL`,
+      )
+      .bind(entryId),
   ]);
   const entry = entryRows.results[0] as unknown as LoadedEntry | undefined;
   if (!entry) return null;
+  if (entry.media_type === "comic") entry.read_issues = (readRows.results as { chapter: number }[]).map((r) => r.chapter);
   const seasons = (seasonRows.results as { season_number: number; episode_count: number }[]).map((s) => ({
     season: s.season_number,
     episodes: s.episode_count,
@@ -153,6 +165,9 @@ interface Plan {
   bulkEpisodes?: { season: number; episode: number; at: string }[];
 }
 
+/** Lecture d'un chapitre (manga) ou d'un numéro (comic). */
+const isReading = (type: MediaType) => type === "manga" || type === "comic";
+
 /**
  * Épisodes de `from` (inclus) jusqu'à `to` (exclu), dans l'ordre des saisons ; vide si `to` est avant `from`.
  * Saisons inconnues : seulement à l'intérieur d'une même saison.
@@ -184,6 +199,21 @@ export function planAction(
   action: Exclude<ProgressAction, { kind: "undo" }>,
 ): Plan {
   const started = entry.started_at ?? today();
+  /**
+   * Comic : lecture d'un numéro. La position passe au prochain numéro non lu (jamais au-delà du dernier) ;
+   * la série est lue quand elle est terminée et que chaque numéro de #1 au dernier l'est.
+   */
+  const readIssue = (issue: number, log: Plan["logs"][number], date: string | undefined): Plan => {
+    const read = [...(entry.read_issues ?? []), issue];
+    if (!entry.is_ongoing && allIssuesRead(read, entry.total_chapters)) {
+      const done = complete(date);
+      return { ...done, set: { ...done.set, current_chapter: Math.floor(entry.total_chapters ?? issue) }, logs: [log, ...done.logs] };
+    }
+    // Relire un numéro déjà dépassé ne fait pas reculer la position.
+    const after = Math.max(issue, (entry.current_chapter ?? 1) - 1);
+    const next = nextUnreadIssue(read, after, entry.total_chapters) ?? Math.floor(issue) + 1;
+    return { set: { ...progressing, current_chapter: next, pause_page: null }, logs: [log], takeFocus: autoFocus };
+  };
   const progressing = { status: "in_progress" as LibraryStatus, started_at: started, drawn_at: null };
   // Une œuvre sur laquelle on avance devient le focus s'il n'y en a pas déjà un pour ce type.
   const autoFocus = !otherFocus;
@@ -204,7 +234,7 @@ export function planAction(
 
   switch (action.kind) {
     case "pause": {
-      if (entry.media_type === "manga") {
+      if (isReading(entry.media_type)) {
         if (!action.page || action.page < 1) throw new ProgressError("Page invalide.");
         return {
           set: { ...progressing, pause_page: action.page, current_chapter: entry.current_chapter ?? 1 },
@@ -246,6 +276,9 @@ export function planAction(
       } else if (entry.media_type === "anime") {
         if (!action.episode || action.episode < 1) throw new ProgressError("Épisode invalide.");
         set.current_episode = action.episode;
+      } else if (entry.media_type === "comic") {
+        if (action.chapter === undefined || action.chapter < 0) throw new ProgressError("Numéro invalide.");
+        set.current_chapter = action.chapter;
       } else if (entry.media_type === "manga") {
         if (action.chapter === undefined && action.volume === undefined) throw new ProgressError("Chapitre invalide.");
         if (action.chapter !== undefined) {
@@ -292,10 +325,13 @@ export function planAction(
     }
 
     case "chapter": {
-      if (entry.media_type !== "manga") throw new ProgressError("Pas de chapitres pour ce type.");
+      if (!isReading(entry.media_type)) throw new ProgressError("Pas de chapitres pour ce type.");
       const chapter = entry.current_chapter ?? 1;
       const log = { kind: "chapter", chapter, at: loggedAt(action.date) };
-      if (entry.total_chapters && chapter >= entry.total_chapters) {
+      if (entry.media_type === "comic") return readIssue(chapter, log, action.date);
+      // Comic : le dernier numéro connu ne termine la série que si elle n'est plus publiée.
+      const last = entry.media_type === "manga" || !entry.is_ongoing;
+      if (last && entry.total_chapters && chapter >= entry.total_chapters) {
         const done = complete(action.date);
         return { ...done, set: { ...done.set, current_chapter: chapter }, logs: [log, ...done.logs] };
       }
@@ -392,6 +428,20 @@ export function planAction(
         takeFocus: autoFocus,
         bulkEpisodes: skipped,
       };
+    }
+
+    case "markIssue": {
+      if (entry.media_type !== "comic") throw new ProgressError("Seuls les numéros de comics se cochent un par un.");
+      if (!Number.isFinite(action.issue) || action.issue < 0) throw new ProgressError("Numéro invalide.");
+      const log = {
+        kind: "chapter",
+        chapter: action.issue,
+        at: loggedAt(action.date),
+        rating: action.rating ?? null,
+        review: action.review?.trim() || null,
+      };
+      // Seulement ce numéro : on lit souvent des numéros isolés (pas de cochage des précédents).
+      return readIssue(action.issue, log, action.date);
     }
   }
 }

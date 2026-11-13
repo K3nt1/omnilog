@@ -18,6 +18,36 @@ export const DEFAULT_DIRECTION: Record<SortKey, SortDirection> = {
   visionnages: "desc",
 };
 
+/** Tri choisi par défaut (Réglages), par type ou pour toute la bibliothèque (« all »). */
+export interface SortChoice {
+  sort: SortKey;
+  direction: SortDirection;
+}
+export type DefaultSorts = Partial<Record<MediaType | "all", SortChoice>>;
+export const BUILTIN_SORT: SortChoice = { sort: "activite", direction: "desc" };
+
+/** Sens d'un tri quand l'adresse n'en donne pas : celui du tri par défaut s'il s'agit de lui, sinon le sens habituel. */
+export const directionFor = (sort: SortKey, fallback: SortChoice) => (sort === fallback.sort ? fallback.direction : DEFAULT_DIRECTION[sort]);
+
+export const SORT_LABELS: Record<SortKey, string> = {
+  activite: "Dernière activité",
+  ajout: "Date d'ajout",
+  note: "Ma note",
+  titre: "Titre",
+  sortie: "Année de sortie",
+  fin: "Date de fin",
+  duree: "Durée",
+  visionnages: "Nombre de visionnages (2 et +)",
+};
+
+/** « Nombre de visionnages », « de lectures », « de parties » selon le type. */
+export function repeatLabel(type: MediaType | null): string {
+  if (type === "manga" || type === "comic") return "Nombre de lectures (2 et +)";
+  if (type === "game") return "Nombre de parties (2 et +)";
+  if (type === null) return "Vu / lu / joué 2 fois et +";
+  return "Nombre de visionnages (2 et +)";
+}
+
 /** « 4 » = 4 étoiles et plus ; « aucune » = pas encore noté. */
 export const RATING_FILTERS = ["5", "4", "3", "2", "1", "aucune"] as const;
 export type RatingFilter = (typeof RATING_FILTERS)[number];
@@ -45,6 +75,8 @@ export interface LibraryQuery {
   search: string;
   sort: SortKey;
   direction: SortDirection;
+  /** Tri par défaut de la page (Réglages) : non écrit dans l'adresse. */
+  defaultSort?: SortChoice;
   page: number;
 }
 
@@ -96,6 +128,8 @@ export interface LibraryCard {
   currentSeason: number | null;
   currentEpisode: number | null;
   currentChapter: number | null;
+  /** Comics : numéros lus (dans le désordre possible : achats isolés, numéros lus dans un recueil). */
+  readIssues: number[] | null;
   currentVolume: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;

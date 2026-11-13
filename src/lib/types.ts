@@ -1,9 +1,9 @@
 // Types partagés entre le serveur (routes API) et l'interface.
 
-export const MEDIA_TYPES = ["movie", "tv", "anime", "manga", "game"] as const;
+export const MEDIA_TYPES = ["movie", "tv", "anime", "manga", "game", "comic"] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
 
-export const MEDIA_SOURCES = ["tmdb", "igdb", "mal"] as const;
+export const MEDIA_SOURCES = ["tmdb", "igdb", "mal", "comicvine"] as const;
 export type MediaSource = (typeof MEDIA_SOURCES)[number];
 
 export const LIBRARY_STATUSES = ["planned", "in_progress", "on_hold", "completed", "dropped"] as const;
@@ -16,6 +16,7 @@ export const SOURCE_FOR_TYPE: Record<MediaType, MediaSource> = {
   anime: "mal",
   manga: "mal",
   game: "igdb",
+  comic: "comicvine",
 };
 
 /** Résultat de recherche, identique quelle que soit la source. */

@@ -2,11 +2,21 @@ import Link from "next/link";
 import type { LibraryCard } from "@/lib/browse-shared";
 import { CardActions } from "./CardActions";
 import { ReleaseText } from "./ReleaseText";
-import { clockLabel, ficheHref, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
+import { clockLabel, ficheHref, issueLabel, starsLabel, statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { yearOf } from "@/lib/types";
 
 /** Progression affichée sur l'affiche, seulement pour une œuvre commencée et pas terminée. */
-export function progressOf(card: LibraryCard): { label: string; ratio: number | null } | null {
+/** Au-delà, la barre d'un comic est continue (une case par numéro serait illisible). */
+const MAX_SEGMENTS = 120;
+
+export interface Progress {
+  label: string;
+  ratio: number | null;
+  /** Comics : une case par numéro, allumée s'il est lu (les trous restent visibles). */
+  segments?: boolean[];
+}
+
+export function progressOf(card: LibraryCard): Progress | null {
   if (card.status !== "in_progress" && card.status !== "on_hold" && card.status !== "dropped") return null;
   if (card.type === "tv" && card.currentEpisode !== null) {
     const s = String(card.currentSeason ?? 1).padStart(2, "0");
@@ -29,7 +39,42 @@ export function progressOf(card: LibraryCard): { label: string; ratio: number | 
       ratio: total ? Math.min(1, (card.currentChapter - 1) / total) : null,
     };
   }
+  if (card.type === "comic") {
+    // Numéros lus plutôt que position : on lit souvent des numéros isolés (achat au détail, numéro repris dans un recueil).
+    const read = card.readIssues ?? [];
+    const total = card.totalChapters;
+    if (read.length === 0) {
+      if (card.currentChapter === null) return null;
+      return { label: total ? `${issueLabel(card.currentChapter)} / ${total}` : issueLabel(card.currentChapter), ratio: null };
+    }
+    const label = `${read.length} lu${read.length > 1 ? "s" : ""}${total ? ` / ${total}` : ""}`;
+    if (!total) return { label, ratio: null };
+    const inRange = new Set(read.filter((n) => Number.isInteger(n) && n >= 1 && n <= total));
+    return {
+      label,
+      ratio: Math.min(1, inRange.size / total),
+      segments: total <= MAX_SEGMENTS ? Array.from({ length: total }, (_, i) => inRange.has(i + 1)) : undefined,
+    };
+  }
   return null;
+}
+
+/** Barre de progression : continue, ou une case par numéro pour un comic (trous visibles). */
+export function ProgressBar({ progress, className = "" }: { progress: Progress; className?: string }) {
+  if (progress.segments) {
+    return (
+      <span className={`flex h-1 gap-px overflow-hidden rounded ${className}`} title={progress.label}>
+        {progress.segments.map((read, i) => (
+          <span key={i} className={`h-full flex-1 ${read ? "bg-emerald-400" : "bg-white/20"}`} />
+        ))}
+      </span>
+    );
+  }
+  return (
+    <span className={`block h-1 overflow-hidden rounded bg-white/20 ${className}`}>
+      <span className="block h-full bg-emerald-400" style={{ width: `${Math.round((progress.ratio ?? 0) * 100)}%` }} />
+    </span>
+  );
 }
 
 export function pauseOf(card: LibraryCard): string | null {
@@ -96,11 +141,7 @@ export function MediaCard({
               <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/90 to-transparent p-1 pt-4 text-[10px]">
                 <span className={`h-2 w-2 shrink-0 rounded-full ring-1 ring-white/50 ${STATUS_STYLE[card.status]}`} title={statusLabel(card.status, card.type)} />
                 {stars && <span className="text-amber-300">★ {stars}</span>}
-                {progress?.ratio != null && (
-                  <span className="h-1 flex-1 overflow-hidden rounded bg-white/20">
-                    <span className="block h-full bg-emerald-400" style={{ width: `${Math.round(progress.ratio * 100)}%` }} />
-                  </span>
-                )}
+                {progress?.ratio != null && <ProgressBar progress={progress} className="flex-1" />}
               </div>
             </>
           ) : (
@@ -133,11 +174,7 @@ export function MediaCard({
             {progress && (
               <div className="mt-1">
                 <span className="font-medium">{progress.label}</span>
-                {progress.ratio !== null && (
-                  <div className="mt-0.5 h-1 overflow-hidden rounded bg-white/20">
-                    <div className="h-full bg-emerald-400" style={{ width: `${Math.round(progress.ratio * 100)}%` }} />
-                  </div>
-                )}
+                {progress.ratio !== null && <ProgressBar progress={progress} className="mt-0.5" />}
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
-// PATCH /api/settings { timezone?, timezoneAuto?, watchRegion?, newsKinds? } : modifie les réglages.
+// PATCH /api/settings { timezone?, timezoneAuto?, watchRegion?, searchAdult?, defaultSorts?, newsKinds? } : modifie les réglages.
+// defaultSorts remplace tous les tris par défaut : { all?: { sort, direction }, movie?: …, … }.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { setNewsKinds } from "@/lib/news";
@@ -18,6 +19,11 @@ export async function PATCH(request: NextRequest) {
     patch.timezoneAuto = body.timezoneAuto;
   }
   if ("watchRegion" in body) patch.watchRegion = String(body.watchRegion);
+  if ("searchAdult" in body) {
+    if (typeof body.searchAdult !== "boolean") return NextResponse.json({ error: "Valeur invalide." }, { status: 400 });
+    patch.searchAdult = body.searchAdult;
+  }
+  if ("defaultSorts" in body) patch.defaultSorts = body.defaultSorts as Settings["defaultSorts"]; // vérifié par updateSettings
   const { env } = getCloudflareContext();
   if ("newsKinds" in body) {
     const mask = body.newsKinds;

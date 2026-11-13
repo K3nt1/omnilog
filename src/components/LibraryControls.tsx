@@ -2,27 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import type { Facet, LibraryQuery, RatingFilter, SortKey } from "@/lib/browse-shared";
+import { repeatLabel, SORT_LABELS, type Facet, type LibraryQuery, type RatingFilter, type SortKey } from "@/lib/browse-shared";
 import { libraryHref } from "@/lib/library-url";
-
-const SORT_LABELS: Record<SortKey, string> = {
-  activite: "Dernière activité",
-  ajout: "Date d'ajout",
-  note: "Ma note",
-  titre: "Titre",
-  sortie: "Année de sortie",
-  fin: "Date de fin",
-  duree: "Durée",
-  visionnages: "Nombre de visionnages (2 et +)",
-};
-
-/** « Nombre de visionnages », « de lectures », « de parties » selon le type. */
-function repeatLabel(type: LibraryQuery["type"]): string {
-  if (type === "manga") return "Nombre de lectures (2 et +)";
-  if (type === "game") return "Nombre de parties (2 et +)";
-  if (type === null) return "Vu / lu / joué 2 fois et +";
-  return "Nombre de visionnages (2 et +)";
-}
 
 const RATING_LABELS: Record<RatingFilter, string> = {
   "5": "★★★★★ uniquement",
@@ -49,7 +30,7 @@ interface Props {
 
 /** « Vu en », « Lu en », « Joué en » selon le type. */
 function watchYearLabel(type: LibraryQuery["type"]): string {
-  if (type === "manga") return "Lu en";
+  if (type === "manga" || type === "comic") return "Lu en";
   if (type === "game") return "Joué en";
   if (type === null) return "Vu / lu / joué en";
   return "Vu en";

@@ -32,11 +32,13 @@ interface MalNode {
   genres?: { name: string }[];
 }
 
-export async function searchMal(clientId: string, kind: "anime" | "manga", query: string): Promise<SearchResult[]> {
+/** `adult` : inclure les œuvres classées pour adultes, que MyAnimeList écarte par défaut (réglage, désactivé d'office). */
+export async function searchMal(clientId: string, kind: "anime" | "manga", query: string, adult = false): Promise<SearchResult[]> {
   const data = await mal<{ data: { node: MalNode }[] }>(clientId, `/${kind}`, {
     q: query,
     limit: "10",
     fields: "alternative_titles,start_date,genres",
+    ...(adult ? { nsfw: "true" } : {}),
   });
   return data.data.map(({ node }) => {
     const externalId = String(node.id);
