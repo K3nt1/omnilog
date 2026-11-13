@@ -233,17 +233,16 @@ const toComicCandidate = (h: VolumeHit): ComicCandidate => ({
 
 /**
  * Statut d'une série d'après les numéros lus :
- * lue si tous les numéros d'une série terminée le sont, en cours après le plus haut numéro lu, sinon backlog.
+ * lue si le dernier numéro d'une série terminée est lu, en cours après le plus haut numéro lu, sinon backlog.
  */
 export function locgProgress(
   read: number[],
-  media: { totalChapters: number | null; issueCount: number | null; isOngoing: boolean },
+  media: { totalChapters: number | null; isOngoing: boolean },
 ): { status: LibraryStatus; currentChapter: number | null } {
   if (read.length === 0) return { status: "planned", currentChapter: null };
   const highest = Math.max(...read);
-  const count = media.issueCount ?? media.totalChapters;
-  const allRead = !media.isOngoing && media.totalChapters !== null && highest >= media.totalChapters && count !== null && read.length >= count;
-  if (allRead) return { status: "completed", currentChapter: highest };
+  // Dernier numéro d'une série terminée lu → série lue (comme quand on coche ce numéro à la main).
+  if (!media.isOngoing && media.totalChapters !== null && highest >= media.totalChapters) return { status: "completed", currentChapter: highest };
   return { status: "in_progress", currentChapter: Math.floor(highest) + 1 };
 }
 
@@ -277,15 +276,14 @@ export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, k
     }
     await saveImportLink(env.DB, "locg", series.key, mediaId);
 
-    const media = await env.DB.prepare("SELECT title, external_id, total_chapters, is_ongoing, extra_json FROM media WHERE id = ?")
+    const media = await env.DB.prepare("SELECT title, external_id, total_chapters, is_ongoing FROM media WHERE id = ?")
       .bind(mediaId)
-      .first<{ title: string; external_id: string; total_chapters: number | null; is_ongoing: number; extra_json: string | null }>();
+      .first<{ title: string; external_id: string; total_chapters: number | null; is_ongoing: number }>();
     if (!media) throw new Error("Série introuvable après l'enregistrement");
-    const extra = media.extra_json ? (JSON.parse(media.extra_json) as { issueCount?: number | null }) : {};
     const read = series.issues.filter((i) => i.read);
     const { status, currentChapter } = locgProgress(
       read.map((i) => i.number),
-      { totalChapters: media.total_chapters, issueCount: extra.issueCount ?? null, isOngoing: media.is_ongoing === 1 },
+      { totalChapters: media.total_chapters, isOngoing: media.is_ongoing === 1 },
     );
     const entryId = await upsertImportedEntry(env.DB, mediaId, "comic", {
       status,
