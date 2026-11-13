@@ -96,11 +96,22 @@ export function LocgImport({ disabled }: { disabled: boolean }) {
             <p className="text-white/80">
               {data.series.length} séries · {data.counts.issues} numéros · {data.counts.read} lus · {data.counts.rated} notés
             </p>
-            {data.compilations > 0 && (
-              <p className="rounded-lg bg-amber-500/10 px-4 py-2 text-amber-200">
-                {data.compilations} recueil{data.compilations > 1 ? "s" : ""} (HC, TP) ignoré{data.compilations > 1 ? "s" : ""} : vérifie
-                quels numéros ils compilent et ajoute-les plus tard à la main via la recherche.
-              </p>
+            {data.compilations.length > 0 && (
+              <div className="rounded-lg bg-amber-500/10 px-4 py-3 text-amber-200">
+                <p>
+                  {data.compilations.length} recueil{data.compilations.length > 1 ? "s" : ""} (HC, TP) ignoré
+                  {data.compilations.length > 1 ? "s" : ""} : vérifie quels numéros ils compilent et ajoute-les plus tard à la main via la
+                  recherche.
+                </p>
+                <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-amber-100/80">
+                  {data.compilations.map((c, i) => (
+                    <li key={`${i}-${c.title}`}>
+                      {c.title}
+                      {c.read && <span className="text-amber-200/60"> · lu</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             <p className="text-xs text-white/50">
               Environ {Math.ceil(data.series.length / IMPORT_BATCH_SIZE.locg)} paquets. Comic Vine limite à 200 recherches par

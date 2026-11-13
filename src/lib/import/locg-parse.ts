@@ -28,7 +28,7 @@ export const comparableName = (value: string) =>
 export interface LocgSummary {
   series: LocgSeries[];
   /** Recueils (HC, TP) ignorés : souvent des éditions françaises que Comic Vine ne connaît pas. */
-  compilations: number;
+  compilations: { title: string; read: boolean }[];
   counts: { rows: number; issues: number; read: number; rated: number };
 }
 
@@ -51,7 +51,7 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
   }
 
   const groups = new Map<string, LocgSeries & { byNumber: Map<number, LocgIssue> }>();
-  let compilations = 0;
+  const compilations: LocgSummary["compilations"] = [];
   let issues = 0;
   for (const row of rows.slice(1)) {
     const seriesName = text(row[c.series]);
@@ -63,7 +63,7 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
     let issue = title.match(/^(.*?)\s*#(\d+(?:\.\d+)?)\b/);
     if (!issue) {
       if (/\b(HC|TP)\b/.test(title)) {
-        compilations++;
+        compilations.push({ title, read });
         continue;
       }
       // Sans numéro mais pas un recueil (one-shot) : un numéro 1 dans sa série.
@@ -109,6 +109,6 @@ export function buildLocgSeries(rows: Cell[][]): LocgSummary {
   return {
     series: series.sort((a, b) => a.label.localeCompare(b.label)),
     compilations,
-    counts: { rows: issues + compilations, issues: all.length, read: all.filter((i) => i.read).length, rated: all.filter((i) => i.rating !== null).length },
+    counts: { rows: issues + compilations.length, issues: all.length, read: all.filter((i) => i.read).length, rated: all.filter((i) => i.rating !== null).length },
   };
 }
