@@ -1,6 +1,7 @@
 // Comic Vine : comics. Doc : https://comicvine.gamespot.com/api/documentation
 // Une série (« volume » chez Comic Vine) = une œuvre ; ses numéros (« issues ») se suivent comme des épisodes.
 // Limites : 200 requêtes par heure et par ressource, User-Agent obligatoire, usage non commercial avec lien vers Comic Vine.
+import { cached } from "../source-cache";
 import { fetchJson, SourceError } from "./http";
 import { issueLabel } from "../labels";
 import type { ReleaseInfo } from "../release-shared";
@@ -51,9 +52,35 @@ interface CvResponse<T> {
   results: T;
 }
 
-/** Appel à l'API (clé, format JSON, User-Agent) avec les erreurs de Comic Vine traduites. */
-async function cv<T>(key: string | undefined, path: string, params: Record<string, string>): Promise<CvResponse<T>> {
+/** Accès à Comic Vine : la clé d'API, et la base pour garder les réponses (facultative). */
+export interface ComicVineAccess {
+  COMICVINE_API_KEY?: string;
+  DB?: D1Database;
+}
+
+const HOUR = 3_600_000;
+/**
+ * Durée de conservation d'une réponse : Comic Vine limite à 200 requêtes par heure et par ressource.
+ * Les derniers numéros (prochaine sortie) restent frais ; le reste change rarement.
+ */
+function cacheTtl(path: string, params: Record<string, string>): number {
+  if (path === "issues/" && params.limit === "6") return 3 * HOUR;
+  if (path === "issues/") return 12 * HOUR;
+  return 24 * HOUR;
+}
+
+/** Appel à l'API (clé, format JSON, User-Agent), réponses gardées dans D1, erreurs de Comic Vine traduites. */
+async function cv<T>(access: ComicVineAccess, path: string, params: Record<string, string>): Promise<CvResponse<T>> {
+  const key = access.COMICVINE_API_KEY;
   if (!key) throw new SourceError("Comic Vine", "Comic Vine : clé d'API absente (COMICVINE_API_KEY)");
+  const cacheKey = `cv:${path}?${Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&")}`;
+  return cached(access.DB, cacheKey, cacheTtl(path, params), () => cvFetch<T>(key, path, params));
+}
+
+async function cvFetch<T>(key: string, path: string, params: Record<string, string>): Promise<CvResponse<T>> {
   const url = new URL(`${API}/${path}`);
   url.searchParams.set("api_key", key);
   url.searchParams.set("format", "json");
@@ -72,7 +99,8 @@ async function cv<T>(key: string | undefined, path: string, params: Record<strin
   if (data.status_code === 101) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
   if (data.status_code === 107) throw new SourceError("Comic Vine", "Comic Vine : limite de requêtes atteinte, réessaie dans un moment", 429);
   if (data.status_code !== 1) throw new SourceError("Comic Vine", `Comic Vine : ${data.error || "erreur"}`);
-  return data;
+  // Seul ce qui sert est gardé (moins de place dans le cache).
+  return { status_code: data.status_code, error: data.error, number_of_total_results: data.number_of_total_results, results: data.results };
 }
 
 /** Texte brut à partir du HTML de Comic Vine (descriptions). */
@@ -125,18 +153,18 @@ export const COMICVINE_MIN_QUERY_LENGTH = 3;
 const searchCache = new Map<string, { at: number; results: SearchResult[] }>();
 const SEARCH_CACHE_MS = 10 * 60_000;
 
-export async function searchComicVine(key: string | undefined, query: string): Promise<SearchResult[]> {
+export async function searchComicVine(access: ComicVineAccess, query: string): Promise<SearchResult[]> {
   const cacheKey = query.toLowerCase();
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.at < SEARCH_CACHE_MS) return cached.results.map((r) => ({ ...r }));
-  const results = await searchVolumes(key, query);
+  const results = await searchVolumes(access, query);
   searchCache.set(cacheKey, { at: Date.now(), results });
   if (searchCache.size > 50) searchCache.delete(searchCache.keys().next().value!);
   return results.map((r) => ({ ...r }));
 }
 
-async function searchVolumes(key: string | undefined, query: string): Promise<SearchResult[]> {
-  const data = await cv<CvVolume[]>(key, "search/", {
+async function searchVolumes(access: ComicVineAccess, query: string): Promise<SearchResult[]> {
+  const data = await cv<CvVolume[]>(access, "search/", {
     resources: "volume",
     query,
     limit: "20",
@@ -161,9 +189,9 @@ async function searchVolumes(key: string | undefined, query: string): Promise<Se
 }
 
 /** Numéros les plus récents d'une série (date de couverture décroissante) : dernier paru et prochains annoncés. */
-export async function recentIssues(key: string | undefined, id: string): Promise<CvIssue[]> {
+export async function recentIssues(access: ComicVineAccess, id: string): Promise<CvIssue[]> {
   if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
-  const data = await cv<CvIssue[]>(key, "issues/", {
+  const data = await cv<CvIssue[]>(access, "issues/", {
     filter: `volume:${id}`,
     sort: "cover_date:desc",
     limit: "6",
@@ -173,14 +201,14 @@ export async function recentIssues(key: string | undefined, id: string): Promise
 }
 
 /** Fiche de la série et ses numéros les plus récents (pour savoir si elle est encore publiée). */
-export async function getComicVineVolume(key: string | undefined, id: string): Promise<{ volume: CvVolume; recent: CvIssue[] }> {
+export async function getComicVineVolume(access: ComicVineAccess, id: string): Promise<{ volume: CvVolume; recent: CvIssue[] }> {
   if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
   const [volume, recent] = await Promise.all([
-    cv<CvVolume>(key, `volume/4050-${id}/`, {
+    cv<CvVolume>(access, `volume/4050-${id}/`, {
       field_list: "id,name,start_year,publisher,image,count_of_issues,deck,description,site_detail_url,first_issue,last_issue",
     }).then((d) => d.results),
     // Facultatif : sans eux, la série est simplement considérée comme terminée.
-    recentIssues(key, id).catch(() => [] as CvIssue[]),
+    recentIssues(access, id).catch(() => [] as CvIssue[]),
   ]);
   // Une série inexistante renvoie parfois un tableau vide au lieu d'une erreur.
   if (!volume || Array.isArray(volume) || !volume.id) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
@@ -231,15 +259,15 @@ export function comicRelease(recent: CvIssue[], now = new Date()): ReleaseInfo |
 
 /** Publication d'une série (une requête) : en cours ?, dernier numéro, prochaine sortie. Pour la tâche programmée. */
 export async function comicPublication(
-  key: string | undefined,
+  access: ComicVineAccess,
   id: string,
 ): Promise<{ isOngoing: boolean; nextRelease: ReleaseInfo | null; totalChapters: number | null }> {
-  const recent = await recentIssues(key, id);
+  const recent = await recentIssues(access, id);
   return { isOngoing: isOngoing(recent), nextRelease: comicRelease(recent), totalChapters: lastIssueNumber(null, recent) };
 }
 
-export async function getComicVineDetails(key: string | undefined, id: string): Promise<MediaDetails> {
-  const { volume, recent } = await getComicVineVolume(key, id);
+export async function getComicVineDetails(access: ComicVineAccess, id: string): Promise<MediaDetails> {
+  const { volume, recent } = await getComicVineVolume(access, id);
   const startYear = yearOf(volume.start_year);
   return {
     type: "comic",
@@ -269,7 +297,7 @@ export async function getComicVineDetails(key: string | undefined, id: string): 
  * Tous les numéros d'une série (jusqu'à MAX_ISSUES), triés par numéro puis par date.
  * Les numéros non numériques (« Annual 1 ») viennent à la fin.
  */
-export async function getComicVineIssues(key: string | undefined, id: string, count: number | null): Promise<CvIssue[]> {
+export async function getComicVineIssues(access: ComicVineAccess, id: string, count: number | null): Promise<CvIssue[]> {
   if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
   const params = (offset: number) => ({
     filter: `volume:${id}`,
@@ -278,12 +306,13 @@ export async function getComicVineIssues(key: string | undefined, id: string, co
     offset: String(offset),
     field_list: "id,issue_number,name,cover_date,store_date,image,site_detail_url",
   });
-  const first = await cv<CvIssue[]>(key, "issues/", params(0));
+  const first = await cv<CvIssue[]>(access, "issues/", params(0));
   const total = Math.min(first.number_of_total_results ?? count ?? 0, MAX_ISSUES);
   const offsets: number[] = [];
   for (let offset = 100; offset < total; offset += 100) offsets.push(offset);
-  const rest = await Promise.all(offsets.map((o) => cv<CvIssue[]>(key, "issues/", params(o)).then((d) => d.results)));
-  const issues = [...first.results, ...rest.flat()];
+  // Une page après l'autre : Comic Vine bloque les rafales de requêtes.
+  const issues = [...first.results];
+  for (const offset of offsets) issues.push(...(await cv<CvIssue[]>(access, "issues/", params(offset))).results);
   return issues.sort((a, b) => {
     const na = issueNumber(a.issue_number);
     const nb = issueNumber(b.issue_number);
@@ -295,9 +324,9 @@ export async function getComicVineIssues(key: string | undefined, id: string, co
 }
 
 /** Couvertures des premiers numéros, pour choisir l'affiche d'une série. */
-export async function comicCovers(key: string | undefined, id: string): Promise<string[]> {
+export async function comicCovers(access: ComicVineAccess, id: string): Promise<string[]> {
   if (!/^\d{1,12}$/.test(id)) return [];
-  const data = await cv<CvIssue[]>(key, "issues/", {
+  const data = await cv<CvIssue[]>(access, "issues/", {
     filter: `volume:${id}`,
     sort: "cover_date:asc",
     limit: "30",
@@ -326,8 +355,8 @@ const toHit = (v: CvVolume): VolumeHit => ({
 });
 
 /** Séries dont le nom correspond (recherche plein texte, 20 premiers résultats). */
-export async function searchVolumeHits(key: string | undefined, name: string): Promise<VolumeHit[]> {
-  const data = await cv<CvVolume[]>(key, "search/", {
+export async function searchVolumeHits(access: ComicVineAccess, name: string): Promise<VolumeHit[]> {
+  const data = await cv<CvVolume[]>(access, "search/", {
     resources: "volume",
     query: name,
     limit: "20",
@@ -340,8 +369,8 @@ export async function searchVolumeHits(key: string | undefined, name: string): P
  * Séries dont le nom contient `name` (filtre de la liste des séries, 100 au plus).
  * Complète la recherche plein texte pour les noms très courants (« Batman » : des dizaines de séries).
  */
-export async function filterVolumeHits(key: string | undefined, name: string): Promise<VolumeHit[]> {
-  const data = await cv<CvVolume[]>(key, "volumes/", {
+export async function filterVolumeHits(access: ComicVineAccess, name: string): Promise<VolumeHit[]> {
+  const data = await cv<CvVolume[]>(access, "volumes/", {
     filter: `name:${name.replace(/[,|]/g, " ")}`,
     limit: "100",
     field_list: "id,name,start_year,publisher,image,count_of_issues",

@@ -103,7 +103,7 @@ export async function sourceImages(env: CloudflareEnv, type: MediaType, external
   }
   if (type === "comic") {
     // Couvertures des numéros de la série (les 30 premiers).
-    return { posters: await comicCovers(env.COMICVINE_API_KEY, externalId), backdrops: [] };
+    return { posters: await comicCovers(env, externalId), backdrops: [] };
   }
   const [game] = await igdbQuery<{ cover?: { image_id: string }; artworks?: { image_id: string }[]; screenshots?: { image_id: string }[] }[]>(
     env,

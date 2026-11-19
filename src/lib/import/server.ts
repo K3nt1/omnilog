@@ -257,12 +257,11 @@ export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, k
     let comicId = series.forceComicId;
     if (mediaId === undefined) {
       if (!comicId) {
-        const key = env.COMICVINE_API_KEY;
-        let hits = await searchVolumeHits(key, series.name);
+        let hits = await searchVolumeHits(env, series.name);
         let outcome = pickComic(series, hits);
         // Nom très courant (« Batman ») : la bonne série peut manquer aux 20 premiers résultats.
         if (!outcome.match) {
-          hits = [...hits, ...(await filterVolumeHits(key, series.name).catch(() => []))];
+          hits = [...hits, ...(await filterVolumeHits(env, series.name).catch(() => []))];
           outcome = pickComic(series, hits);
         }
         if (!outcome.match) {
@@ -275,7 +274,7 @@ export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, k
         }
         comicId = String(outcome.match.id);
       }
-      mediaId = await upsertMedia(env.DB, await getComicVineDetails(env.COMICVINE_API_KEY, comicId));
+      mediaId = await upsertMedia(env.DB, await getComicVineDetails(env, comicId));
     }
     await saveImportLink(env.DB, "locg", series.key, mediaId);
 

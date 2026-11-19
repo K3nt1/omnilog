@@ -202,7 +202,7 @@ export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise
           : row.type === "anime"
             ? await aniListAiring(row.external_id).then((a) => ({ isOngoing: a.ongoing, nextRelease: a.next }))
             : row.type === "comic"
-              ? await comicPublication(env.COMICVINE_API_KEY, row.external_id)
+              ? await comicPublication(env, row.external_id)
               : { isOngoing: true, nextRelease: null };
       if (!fiche.isOngoing) await env.DB.prepare("UPDATE media SET is_ongoing = 0 WHERE id = ?").bind(row.id).run();
       await refreshRelease(env, row.type, media, fiche, true);

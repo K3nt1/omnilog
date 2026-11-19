@@ -1,11 +1,11 @@
 // Fiche d'une série de comics depuis Comic Vine : éditeur, début de publication, nombre de numéros.
 // La liste des numéros se charge à part (/api/fiche/comics/:id/numeros), seulement quand on l'ouvre.
-import { comicRelease, getComicVineVolume, isOngoing, lastIssueNumber, overviewOf, posterOf } from "../sources/comicvine";
+import { comicRelease, getComicVineVolume, type ComicVineAccess, isOngoing, lastIssueNumber, overviewOf, posterOf } from "../sources/comicvine";
 import { yearOf } from "../types";
 import type { MediaFiche } from "./types";
 
-export async function getComicVineFiche(key: string | undefined, id: string): Promise<MediaFiche> {
-  const { volume, recent } = await getComicVineVolume(key, id);
+export async function getComicVineFiche(access: ComicVineAccess, id: string): Promise<MediaFiche> {
+  const { volume, recent } = await getComicVineVolume(access, id);
   const startYear = yearOf(volume.start_year);
   const ongoing = isOngoing(recent);
   return {
