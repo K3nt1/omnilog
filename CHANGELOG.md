@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/K3nt1/omnilog/compare/v0.8.1...v0.9.0) (2026-11-19)
+
+
+### ✨ Nouveautés
+
+* **calendrier:** calendrier des activités (vue Mois avec le détail du jour, vue Année) ([#88](https://github.com/K3nt1/omnilog/issues/88)) ([1fe53f3](https://github.com/K3nt1/omnilog/commit/1fe53f3202cedda59a0f4d59c8cdfd86274374d7))
+* comics en numéros isolés, saison entière vue, vu sans date, animation du tirage, version affichée ([#89](https://github.com/K3nt1/omnilog/issues/89)) ([8186a3e](https://github.com/K3nt1/omnilog/commit/8186a3e493b4d114f3afbb6e4087be85cd04a3bf))
+
 ## [0.8.1](https://github.com/K3nt1/omnilog/compare/v0.8.0...v0.8.1) (2026-11-19)
 
 
