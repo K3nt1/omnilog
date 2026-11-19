@@ -1,6 +1,7 @@
 // Calendrier : activités d'un mois (vue Mois) et nombre d'activités par jour (vue Année).
 // Sources : le journal (progress_log, sans les pauses ni les activités sans date), les dates de fin saisies
 // sur la fiche sans activité au journal ce jour-là, et les ajouts à la bibliothèque (vue Mois seulement).
+// Comics en numéros isolés : leur « fin » n'est pas une lecture (la série n'est pas suivie), seuls leurs numéros comptent.
 import {
   dayOf,
   groupByDay,
@@ -83,6 +84,7 @@ export async function getMonth(
                   NULL AS duration_minutes, NULL AS note, l.completed_at AS at, NULL AS rating, NULL AS review, 0 AS again, ${WORK_COLUMNS}
            FROM library_entries l JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
+             AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
                              AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
         )
@@ -157,7 +159,8 @@ export async function getYear(db: D1Database, year: number, options: { timeZone:
       .prepare(
         `SELECT l.completed_at AS at, l.media_type FROM library_entries l
          WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
-           AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
+           AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
+             AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
                            AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
       )
       .bind(CURRENT_USER_ID, first, next, ...types.params),
