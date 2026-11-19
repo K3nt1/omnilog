@@ -116,6 +116,8 @@ export async function addToLibrary(
     .first<{ id: number; status: LibraryStatus }>();
 
   if (inserted) {
+    // Nouvelle œuvre : les nouveautés lentes la vérifieront dès la prochaine exécution programmée.
+    await db.prepare("UPDATE users SET news_next_check_at = NULL WHERE id = ?").bind(CURRENT_USER_ID).run();
     return { entryId: inserted.id, mediaId: media.id, created: true, status: inserted.status };
   }
 

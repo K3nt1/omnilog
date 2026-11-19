@@ -176,7 +176,8 @@ export async function getNewsKinds(db: D1Database): Promise<number> {
 }
 
 export async function setNewsKinds(db: D1Database, mask: number): Promise<void> {
-  await db.prepare("UPDATE users SET news_kinds = ? WHERE id = ?").bind(mask, CURRENT_USER_ID).run();
+  // Nouveaux types suivis : vérification dès la prochaine exécution programmée.
+  await db.prepare("UPDATE users SET news_kinds = ?, news_next_check_at = NULL WHERE id = ?").bind(mask, CURRENT_USER_ID).run();
 }
 
 // ---------- Vérifications lentes ----------
@@ -290,11 +291,18 @@ async function checkDlcs(env: CloudflareEnv, row: DueRow, state: NewsState): Pro
  * Vérifications lentes (tâche programmée) : au plus `limit` œuvres, celles dont la dernière vérification
  * est la plus ancienne. Les types de nouveautés coupés dans Réglages ne sont pas vérifiés.
  */
+/** Attente après une vérification qui n'a plus rien trouvé à faire. */
+const NEWS_IDLE_HOURS = 6;
+
 export async function checkDueNews(env: CloudflareEnv, limit = 8, now = Date.now()): Promise<number> {
   const [kinds, regionRow] = await Promise.all([
     getNewsKinds(env.DB),
-    env.DB.prepare("SELECT watch_region FROM users WHERE id = ?").bind(CURRENT_USER_ID).first<{ watch_region: string }>(),
+    env.DB.prepare("SELECT watch_region, news_next_check_at FROM users WHERE id = ?")
+      .bind(CURRENT_USER_ID)
+      .first<{ watch_region: string; news_next_check_at: string | null }>(),
   ]);
+  // Rien n'était à vérifier la dernière fois : on attend avant de relire toute la bibliothèque.
+  if (regionRow?.news_next_check_at && Date.parse(regionRow.news_next_check_at) > now) return 0;
   const region = regionRow?.watch_region ?? "FR";
   const before = (days: number) => new Date(now - days * 86400_000).toISOString();
   const wanted: string[] = [];
@@ -345,5 +353,10 @@ export async function checkDueNews(env: CloudflareEnv, limit = 8, now = Date.now
       ),
     ]);
   }
+  // Lot incomplet : tout ce qui était dû est vérifié. Les prochaines œuvres ne seront dues que dans plusieurs jours
+  // (ou à l'ajout de nouvelles œuvres) : prochaine lecture de la bibliothèque dans quelques heures.
+  await env.DB.prepare("UPDATE users SET news_next_check_at = ? WHERE id = ?")
+    .bind(results.length < limit ? new Date(now + NEWS_IDLE_HOURS * 3600_000).toISOString() : null, CURRENT_USER_ID)
+    .run();
   return results.length;
 }

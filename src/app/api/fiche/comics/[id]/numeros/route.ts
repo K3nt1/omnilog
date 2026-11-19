@@ -12,7 +12,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!/^\d{1,12}$/.test(id)) return NextResponse.json({ error: "Série invalide." }, { status: 400 });
   const { env } = getCloudflareContext();
   try {
-    const [issues, logs] = await Promise.all([getComicVineIssues(env.COMICVINE_API_KEY, id, null), getIssueLogs(env.DB, id)]);
+    const [issues, logs] = await Promise.all([getComicVineIssues(env, id, null), getIssueLogs(env.DB, id)]);
     return NextResponse.json(
       { issues: matchIssues(issues, logs), truncated: issues.length >= MAX_ISSUES },
       { headers: { "Cache-Control": "no-store" } },

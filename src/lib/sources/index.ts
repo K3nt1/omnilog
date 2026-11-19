@@ -18,7 +18,7 @@ export async function searchAll(env: CloudflareEnv, query: string, types: Set<Me
     tasks.push({ source: "igdb", run: () => searchIgdb(env, query) });
   }
   if (types.has("comic") && query.length >= COMICVINE_MIN_QUERY_LENGTH) {
-    tasks.push({ source: "comicvine", run: () => searchComicVine(env.COMICVINE_API_KEY, query) });
+    tasks.push({ source: "comicvine", run: () => searchComicVine(env, query) });
   }
   if (query.length >= MAL_MIN_QUERY_LENGTH) {
     if (types.has("anime")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "anime", query, adult) });
@@ -91,6 +91,6 @@ export function getDetails(
     case "manga":
       return getMalDetails(env.MAL_CLIENT_ID, type, externalId);
     case "comic":
-      return getComicVineDetails(env.COMICVINE_API_KEY, externalId);
+      return getComicVineDetails(env, externalId);
   }
 }

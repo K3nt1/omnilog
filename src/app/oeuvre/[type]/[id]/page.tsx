@@ -27,7 +27,7 @@ import { ReleaseText } from "@/components/ReleaseText";
 import { refreshRelease } from "@/lib/release";
 import { displayRelease } from "@/lib/release-shared";
 import { SourceError } from "@/lib/sources/http";
-import { yearOf, type MediaType } from "@/lib/types";
+import { SOURCE_FOR_TYPE, yearOf, type MediaType } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -68,8 +68,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const type = typeFromSlug(slug);
   if (!type || !/^\d{1,12}$/.test(id)) return { title: "Introuvable" };
   const { env } = getCloudflareContext();
-  const { results } = await env.DB.prepare("SELECT title FROM media WHERE type = ? AND external_id = ?")
-    .bind(type, id)
+  // Avec la source : la requête utilise l'index unique (type, source, external_id) et ne lit qu'une ligne.
+  const { results } = await env.DB.prepare("SELECT title FROM media WHERE type = ? AND source = ? AND external_id = ?")
+    .bind(type, SOURCE_FOR_TYPE[type], id)
     .all<{ title: string }>();
   return { title: results[0]?.title ?? TYPE_SINGULAR[type] };
 }
