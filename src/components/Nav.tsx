@@ -9,6 +9,7 @@ import { MEDIA_TYPES } from "@/lib/types";
 const LINKS = [
   { href: "/aujourdhui", label: "Aujourd'hui" },
   { href: "/bibliotheque", label: "Bibliothèque" },
+  { href: "/calendrier", label: "Calendrier" },
   ...MEDIA_TYPES.map((t) => ({ href: `/${TYPE_SLUGS[t]}`, label: TYPE_LABELS[t] })),
 ];
 
