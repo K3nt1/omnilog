@@ -83,7 +83,12 @@ export function CalendarMonth({ state, days, today }: { state: CalendarState; da
         </div>
       </div>
 
-      <aside className="h-fit rounded-xl border border-white/10 bg-white/[0.04] p-4 lg:sticky lg:top-20">
+      {/*
+        Sur grand écran, le détail du jour a la hauteur de la grille (de l'en-tête à la dernière semaine) : il est
+        posé en absolu dans sa colonne pour ne pas l'agrandir, et sa liste défile à l'intérieur.
+      */}
+      <div className="relative">
+      <aside className="flex flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 lg:absolute lg:inset-0">
         {!state.day ? (
           <p className="text-sm text-white/60">Choisis un jour pour voir ce que tu as vu, lu, joué ou ajouté.</p>
         ) : (
@@ -102,7 +107,7 @@ export function CalendarMonth({ state, days, today }: { state: CalendarState; da
                     {selected.importedAdds} ajout{selected.importedAdds > 1 ? "s" : ""} (import)
                   </p>
                 )}
-                <ul className="divide-y divide-white/10">
+                <ul className="-mr-2 min-h-0 flex-1 divide-y divide-white/10 overflow-y-auto pr-2">
                   {selected.works.map((w) => {
                     const stars = starsLabel(w.rating);
                     return (
@@ -137,6 +142,7 @@ export function CalendarMonth({ state, days, today }: { state: CalendarState; da
           </>
         )}
       </aside>
+      </div>
     </div>
   );
 }

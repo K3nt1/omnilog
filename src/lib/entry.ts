@@ -348,7 +348,6 @@ async function comicFollowParts(db: D1Database, entryId: number, follows: boolea
   if (entry.status === "on_hold" || entry.status === "dropped") return parts;
   if (!follows) {
     parts.push(read.length > 0 ? ["status = 'completed'", []] : ["status = 'planned'", []]);
-    if (read.length > 0) parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
     return parts;
   }
   if (read.length === 0) return [...parts, ["status = 'planned'", []], ["completed_at = NULL", []]];
