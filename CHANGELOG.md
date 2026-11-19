@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/K3nt1/omnilog/compare/v0.8.0...v0.8.1) (2026-11-19)
+
+
+### 🐛 Corrections
+
+* moins de lectures D1, cache Comic Vine, rappels de la veille en double ([#84](https://github.com/K3nt1/omnilog/issues/84)) ([a6800b0](https://github.com/K3nt1/omnilog/commit/a6800b0738611783a124308a54b84627141e89e7))
+
 ## [0.8.0](https://github.com/K3nt1/omnilog/compare/v0.7.3...v0.8.0) (2026-11-13)
 
 
