@@ -10,6 +10,7 @@ import { pushConfigured, queueMessage, wakeDevices, type PushEnv } from "./push"
 import { refreshDueReleases } from "./release";
 import { dailyQuestMessage, isDue, listReminders, reminderMessage } from "./reminders";
 import { getSettings } from "./settings";
+import { pruneSourceCache } from "./source-cache";
 
 export interface CronReport {
   sent: number;
@@ -47,6 +48,7 @@ export async function runScheduled(env: CloudflareEnv & PushEnv, at = new Date()
   // Ménage : les messages de plus de 30 jours.
   if (at.getUTCHours() === 3 && at.getUTCMinutes() < 15) {
     await env.DB.prepare("DELETE FROM push_messages WHERE created_at < ?").bind(new Date(at.getTime() - 30 * 86400_000).toISOString()).run();
+    await pruneSourceCache(env.DB, 7, at.getTime());
   }
   return { sent, devices, refreshed, checked };
 }

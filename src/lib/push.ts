@@ -95,7 +95,10 @@ export async function wakeDevices(env: PushEnv): Promise<number> {
   return sent;
 }
 
-/** Messages pas encore affichés par cet appareil (24 h au plus), puis marqués comme affichés. */
+/** Écart maximal entre les messages d'un même envoi. */
+const LAST_BATCH_MS = 3600_000;
+
+/** Messages pas encore affichés par cet appareil (24 h au plus, dernier envoi seulement), puis marqués comme affichés. */
 export async function pendingMessages(
   db: D1Database,
   endpoint: string | null,
@@ -106,16 +109,21 @@ export async function pendingMessages(
     : null;
   const { results } = await db
     .prepare(
-      `SELECT id, title, body, url, tag FROM push_messages
+      `SELECT id, title, body, url, tag, created_at FROM push_messages
        WHERE user_id = ? AND id > ? AND created_at >= ? ORDER BY id DESC LIMIT 5`,
     )
     .bind(CURRENT_USER_ID, sub?.last_message_id ?? 0, since)
-    .all<{ id: number; title: string; body: string; url: string; tag: string | null }>();
+    .all<{ id: number; title: string; body: string; url: string; tag: string | null; created_at: string }>();
   if (sub && results.length > 0) {
     await db.prepare("UPDATE push_subscriptions SET last_message_id = ? WHERE id = ?").bind(results[0].id, sub.id).run();
   }
+  // Seulement le dernier envoi (messages créés dans l'heure du plus récent) : un message resté non marqué
+  // (abonnement renouvelé par le navigateur, appareil hors ligne…) ne ressort pas au réveil suivant.
+  // Sans ça, la quête de 12 h de la veille revenait avec les rappels de 10 h, encore dans la fenêtre de 24 h.
+  const newest = results[0] ? Date.parse(results[0].created_at) : 0;
+  const batch = results.filter((m) => newest - Date.parse(m.created_at) <= LAST_BATCH_MS);
   // Appareil inconnu (abonnement perdu) : seulement le dernier message, pour ne pas tout réafficher.
-  return (sub ? results : results.slice(0, 1)).reverse();
+  return (sub ? batch : batch.slice(0, 1)).reverse().map((m) => ({ id: m.id, title: m.title, body: m.body, url: m.url, tag: m.tag }));
 }
 
 export async function saveSubscription(db: D1Database, endpoint: string, userAgent: string | null): Promise<void> {

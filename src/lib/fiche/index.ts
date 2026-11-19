@@ -19,6 +19,6 @@ export function getFiche(env: CloudflareEnv, type: MediaType, externalId: string
     case "game":
       return getIgdbFiche(env, externalId);
     case "comic":
-      return getComicVineFiche(env.COMICVINE_API_KEY, externalId);
+      return getComicVineFiche(env, externalId);
   }
 }
