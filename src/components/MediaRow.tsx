@@ -54,7 +54,7 @@ export function MediaRow({
         {card.isFocus && <span title="En ce moment">🎯</span>}
         {card.isFavorite && <span className="text-rose-400" title="Favori">♥</span>}
         {stars && <span className="text-amber-300">★ {stars}</span>}
-        <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[card.status]}`}>{statusLabel(card.status, card.type)}</span>
+        <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[card.status]}`}>{statusLabel(card.status, card.type, false, !card.followsSeries)}</span>
       </div>
       {actions && (
         <div className="relative shrink-0">

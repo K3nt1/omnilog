@@ -17,6 +17,11 @@ export interface Progress {
 }
 
 export function progressOf(card: LibraryCard): Progress | null {
+  // Comic en numéros isolés : juste combien, sans total ni barre (la série n'est pas suivie), même lue.
+  if (card.type === "comic" && !card.followsSeries) {
+    const n = card.readIssues?.length ?? 0;
+    return n > 0 ? { label: `${n} numéro${n > 1 ? "s" : ""} lu${n > 1 ? "s" : ""}`, ratio: null } : null;
+  }
   if (card.status !== "in_progress" && card.status !== "on_hold" && card.status !== "dropped") return null;
   if (card.type === "tv" && card.currentEpisode !== null) {
     const s = String(card.currentSeason ?? 1).padStart(2, "0");
@@ -139,7 +144,7 @@ export function MediaCard({
                 {card.isFavorite && <span className="rounded bg-black/70 px-1 text-rose-400" title="Favori">♥</span>}
               </div>
               <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/90 to-transparent p-1 pt-4 text-[10px]">
-                <span className={`h-2 w-2 shrink-0 rounded-full ring-1 ring-white/50 ${STATUS_STYLE[card.status]}`} title={statusLabel(card.status, card.type)} />
+                <span className={`h-2 w-2 shrink-0 rounded-full ring-1 ring-white/50 ${STATUS_STYLE[card.status]}`} title={statusLabel(card.status, card.type, false, !card.followsSeries)} />
                 {stars && <span className="text-amber-300">★ {stars}</span>}
                 {progress?.ratio != null && <ProgressBar progress={progress} className="flex-1" />}
               </div>
@@ -167,7 +172,7 @@ export function MediaCard({
           {/* Bas : statut, note, progression, pause */}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-1.5 pt-6 text-[11px] sm:text-xs">
             <div className="flex flex-wrap items-center gap-1">
-              <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[card.status]}`}>{statusLabel(card.status, card.type)}</span>
+              <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[card.status]}`}>{statusLabel(card.status, card.type, false, !card.followsSeries)}</span>
               {stars && <span className="rounded bg-black/70 px-1.5 py-0.5 text-amber-300">★ {stars}</span>}
               {pause && <span className="rounded bg-black/70 px-1.5 py-0.5">{pause}</span>}
             </div>

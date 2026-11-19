@@ -5,6 +5,7 @@ import type { LibraryEntry } from "@/lib/entry";
 import { clockLabel, durationLabel, issueLabel, positionLine, statusLabel } from "@/lib/labels";
 import type { MediaType, SeasonInfo } from "@/lib/types";
 import { useAction } from "../useAction";
+import { DateInput, datedBody } from "./DateInput";
 
 /** « 1:12:30 », « 72:30 » ou « 45 » (minutes) → secondes ; null si illisible. */
 export function parseClock(value: string): number | null {
@@ -51,9 +52,12 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
   const [checkVolume, setCheckVolume] = useState(String(entry.currentVolume ?? 1));
 
   const done = entry.status === "completed";
-  const dateField = (
-    <input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value || today())} className={field} aria-label="Date" />
-  );
+  const dateField = <DateInput value={date} onChange={setDate} />;
+  // Date choisie, ou « sans date ».
+  const dated = datedBody(date);
+  // Comic en numéros isolés : pas de position ni de prochain numéro, la lecture se coche dans la liste des numéros.
+  const isolated = type === "comic" && !entry.followsSeries;
+  const toggleFollow = () => run("follow", `/api/library/${entry.id}`, { followsSeries: !entry.followsSeries }, "PATCH");
 
   // Ce que « ✓ » valide ensuite.
   const next =
@@ -84,7 +88,13 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         <h2 className="font-semibold">
           Ma progression{" "}
           <span className="text-sm font-normal text-sky-300">
-            {done ? statusLabel("completed", type) : positionLine({ ...entry, type })}
+            {isolated
+              ? entry.issuesRead > 0
+                ? `${statusLabel("completed", type, false, true)} · ${entry.issuesRead} numéro${entry.issuesRead > 1 ? "s" : ""}`
+                : "Aucun numéro lu"
+              : done
+                ? statusLabel("completed", type)
+                : positionLine({ ...entry, type })}
           </span>
         </h2>
         <div className="flex flex-wrap gap-2">
@@ -93,7 +103,12 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
               {busy === "undo" ? "…" : "↶ Annuler la dernière progression"}
             </button>
           )}
-          {!done && (
+          {type === "comic" && (
+            <button type="button" onClick={toggleFollow} disabled={busy !== null} className={secondary} title="Série suivie : position, prochain numéro, sorties. Numéros isolés : numéros achetés au détail ou lus dans un recueil.">
+              {busy === "follow" ? "…" : entry.followsSeries ? "Passer en numéros isolés" : "📚 Je suis cette série"}
+            </button>
+          )}
+          {!done && !isolated && (
             <button
               type="button"
               onClick={() => run("focus", `/api/library/${entry.id}/focus`, { focus: !entry.isFocus })}
@@ -106,11 +121,18 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         </div>
       </div>
 
-      {!done && next && (
+      {isolated && (
+        <p className="text-sm text-white/60">
+          Numéros isolés : coche ceux que tu as lus dans la liste des numéros. Si tu lis la série en entier, passe-la en « Je suis cette série »
+          pour retrouver où tu en es, le prochain numéro et les sorties.
+        </p>
+      )}
+
+      {!done && !isolated && next && (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => act("step", { kind: reading ? "chapter" : "episode", date })}
+            onClick={() => act("step", { kind: reading ? "chapter" : "episode", ...dated })}
             disabled={busy !== null}
             className={primary}
           >
@@ -128,7 +150,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
           <button
             type="button"
-            onClick={() => act("volume", { kind: "volume", date })}
+            onClick={() => act("volume", { kind: "volume", ...dated })}
             disabled={busy !== null}
             className={secondary}
           >
@@ -147,7 +169,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
           <button
             type="button"
             disabled={busy !== null || !(Number(checkVolume) >= 1)}
-            onClick={() => act("checkVolume", { kind: "volume", volume: Math.floor(Number(checkVolume)), date })}
+            onClick={() => act("checkVolume", { kind: "volume", volume: Math.floor(Number(checkVolume)), ...dated })}
             className={secondary}
           >
             {busy === "checkVolume" ? "…" : "✓ Lu"}
@@ -227,7 +249,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
       )}
 
       {/* Pause : film / épisode (minutage) ou page (manga, comic). */}
-      {!done && type !== "game" && (
+      {!done && !isolated && type !== "game" && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-white/70">⏸ {reading ? "Page" : "Pause à"}</span>
           {reading ? (
@@ -263,7 +285,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
               disabled={busy !== null}
               onClick={async () => {
                 const seconds = minutes.trim() ? parseClock(minutes.includes(":") ? `${minutes}:00` : minutes) : null;
-                const ok = await act("session", { kind: "session", date, minutes: seconds !== null ? Math.round(seconds / 60) : undefined, note });
+                const ok = await act("session", { kind: "session", ...dated, minutes: seconds !== null ? Math.round(seconds / 60) : undefined, note });
                 if (ok) {
                   setMinutes("");
                   setNote("");
@@ -278,9 +300,9 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
       )}
 
       {/* Terminer. */}
-      {!done && (
+      {!done && !isolated && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3 text-sm">
-          <button type="button" onClick={() => act("complete", { kind: "complete", date })} disabled={busy !== null} className={secondary}>
+          <button type="button" onClick={() => act("complete", { kind: "complete", ...dated })} disabled={busy !== null} className={secondary}>
             {busy === "complete" ? "…" : `✓ ${type === "movie" ? "Vu" : "Terminé"}`}
           </button>
           {type !== "tv" && type !== "anime" && !reading && dateField}

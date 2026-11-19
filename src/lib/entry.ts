@@ -1,4 +1,5 @@
 // Fiche média côté base : l'œuvre (si elle est en base), ton suivi, ton journal ; et leurs modifications.
+import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID } from "./library";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
 import { SOURCE_FOR_TYPE, type LibraryStatus, type MediaType } from "./types";
@@ -52,6 +53,10 @@ export interface LibraryEntry {
   drawnAt: string | null;
   /** Une progression faite dans Omnilog peut être annulée. */
   canUndo: boolean;
+  /** Comics : série suivie (position, prochain numéro) ou numéros isolés. */
+  followsSeries: boolean;
+  /** Comics : nombre de numéros différents lus. */
+  issuesRead: number;
 }
 
 export interface JournalLine {
@@ -121,6 +126,8 @@ interface MediaRow {
   playtime_minutes: number | null;
   drawn_at: string | null;
   can_undo: number;
+  follows_series: number | null;
+  issues_read: number | null;
 }
 
 interface JournalRow {
@@ -157,8 +164,10 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
         `SELECT m.*, l.id AS entry_id, l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
                 l.started_at, l.completed_at, l.created_at AS added_at, l.custom_poster_url, l.custom_backdrop_url,
                 l.backdrop_position, l.current_season, l.current_episode, l.current_chapter, l.current_volume, l.pause_seconds, l.pause_page,
-                l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at,
-                EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.undo_json IS NOT NULL) AS can_undo
+                l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at, l.follows_series,
+                EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.undo_json IS NOT NULL) AS can_undo,
+                CASE WHEN m.type = 'comic' THEN (SELECT COUNT(DISTINCT p.chapter) FROM progress_log p
+                  WHERE p.entry_id = l.id AND p.kind = 'chapter' AND p.chapter IS NOT NULL) END AS issues_read
          FROM media m LEFT JOIN library_entries l ON l.media_id = m.id AND l.user_id = ?
          WHERE m.type = ? AND m.source = ? AND m.external_id = ?`,
       )
@@ -231,6 +240,8 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
           playtimeMinutes: row.playtime_minutes,
           drawnAt: row.drawn_at,
           canUndo: row.can_undo === 1,
+          followsSeries: row.follows_series !== 0,
+          issuesRead: row.issues_read ?? 0,
         }
       : null;
 
@@ -286,6 +297,8 @@ export interface EntryPatch {
   customPosterUrl?: string | null;
   customBackdropUrl?: string | null;
   backdropPosition?: string | null;
+  /** Comics : suivre la série (true) ou numéros isolés (false) ; le statut et la position sont recalculés. */
+  followsSeries?: boolean;
 }
 
 /** Morceaux du SET pour un changement de statut (dates remplies ou effacées selon le statut). */
@@ -310,6 +323,46 @@ function statusParts(patch: EntryPatch): [sql: string, params: unknown[]][] {
 /** Une œuvre terminée ou abandonnée n'est plus « en ce moment ». */
 const leavesFocus = (status: LibraryStatus | undefined) => status === "completed" || status === "dropped";
 
+/**
+ * Comics : passer en série suivie ou en numéros isolés, avec le statut qui va avec.
+ *  - numéros isolés : « Lu (numéros isolés) » dès un numéro lu, backlog sinon (en pause / abandonnée : gardé) ;
+ *  - série suivie : lue si tous ses numéros (série terminée) le sont, sinon en cours au prochain numéro non lu.
+ * null si l'entrée n'existe pas ou n'est pas un comic.
+ */
+async function comicFollowParts(db: D1Database, entryId: number, follows: boolean): Promise<[string, unknown[]][] | null> {
+  const [entryRows, readRows] = await db.batch<Record<string, unknown>>([
+    db
+      .prepare(
+        `SELECT l.status, l.media_type, m.total_chapters, m.is_ongoing FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE l.id = ? AND l.user_id = ?`,
+      )
+      .bind(entryId, CURRENT_USER_ID),
+    db
+      .prepare("SELECT DISTINCT chapter FROM progress_log WHERE entry_id = ? AND kind = 'chapter' AND chapter IS NOT NULL")
+      .bind(entryId),
+  ]);
+  const entry = entryRows.results[0] as { status: LibraryStatus; media_type: MediaType; total_chapters: number | null; is_ongoing: number } | undefined;
+  if (!entry || entry.media_type !== "comic") return null;
+  const read = (readRows.results as { chapter: number }[]).map((r) => r.chapter);
+  const parts: [string, unknown[]][] = [["follows_series = ?", [follows ? 1 : 0]]];
+  if (entry.status === "on_hold" || entry.status === "dropped") return parts;
+  if (!follows) {
+    parts.push(read.length > 0 ? ["status = 'completed'", []] : ["status = 'planned'", []]);
+    if (read.length > 0) parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
+    return parts;
+  }
+  if (read.length === 0) return [...parts, ["status = 'planned'", []], ["completed_at = NULL", []]];
+  if (!entry.is_ongoing && allIssuesRead(read, entry.total_chapters)) return [...parts, ["status = 'completed'", []]];
+  const next = nextUnreadIssue(read, Math.max(...read), entry.total_chapters) ?? Math.floor(Math.max(...read)) + 1;
+  return [
+    ...parts,
+    ["status = 'in_progress'", []],
+    ["completed_at = NULL", []],
+    ["started_at = COALESCE(started_at, date('now'))", []],
+    ["current_chapter = ?", [next]],
+  ];
+}
+
 /** Applique les modifications ; renvoie false si l'entrée n'existe pas. */
 export async function updateEntry(db: D1Database, entryId: number, patch: EntryPatch): Promise<boolean> {
   // Chaque morceau du SET avec ses paramètres, dans l'ordre des « ? ».
@@ -322,13 +375,19 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   if (patch.customPosterUrl !== undefined) parts.push(["custom_poster_url = ?", [patch.customPosterUrl]]);
   if (patch.customBackdropUrl !== undefined) parts.push(["custom_backdrop_url = ?", [patch.customBackdropUrl]]);
   if (patch.backdropPosition !== undefined) parts.push(["backdrop_position = ?", [patch.backdropPosition]]);
+  if (patch.followsSeries !== undefined) {
+    const follow = await comicFollowParts(db, entryId, patch.followsSeries);
+    if (!follow) return false;
+    parts.push(...follow);
+  }
   if (parts.length === 0) return true;
 
   const update = db
     .prepare(`UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ? AND user_id = ?`)
     .bind(...parts.flatMap(([, params]) => params), entryId, CURRENT_USER_ID);
   const [result] = await db.batch(
-    leavesFocus(patch.status) ? [update, db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId)] : [update],
+    // Numéros isolés : plus de « prochain numéro », donc plus de focus.
+    leavesFocus(patch.status) || patch.followsSeries === false ? [update, db.prepare("DELETE FROM focus WHERE entry_id = ?").bind(entryId)] : [update],
   );
   return (result.meta.changes ?? 0) > 0;
 }
@@ -381,6 +440,8 @@ export interface EpisodeLog {
   at: string;
   rating: number | null;
   review: string | null;
+  /** 1 : vu sans date. */
+  undated?: number;
 }
 
 /** Visionnages d'épisodes d'une série (pour cocher les épisodes vus dans la liste d'une saison). */
@@ -392,7 +453,7 @@ export async function getEpisodeLogs(
     db.prepare("SELECT title, original_title FROM media WHERE type = 'tv' AND source = 'tmdb' AND external_id = ?").bind(externalId),
     db
       .prepare(
-        `SELECT p.id, p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review
+        `SELECT p.id, p.season, p.episode, p.note, p.logged_at AS at, p.rating, p.review, p.undated
          FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
          WHERE l.user_id = ? AND m.type = 'tv' AND m.source = 'tmdb' AND m.external_id = ? AND p.kind = 'episode'
          ORDER BY p.logged_at DESC`,

@@ -130,6 +130,8 @@ export interface LibraryCard {
   currentChapter: number | null;
   /** Comics : numéros lus (dans le désordre possible : achats isolés, numéros lus dans un recueil). */
   readIssues: number[] | null;
+  /** Comics : série suivie, ou numéros isolés (« Lu (numéros isolés) », pas de prochain numéro). */
+  followsSeries: boolean;
   currentVolume: number | null;
   pauseSeconds: number | null;
   pausePage: number | null;

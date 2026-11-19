@@ -8,6 +8,7 @@ import { SortSettings } from "@/components/settings/SortSettings";
 import { getNewsKinds } from "@/lib/news";
 import { listReminders } from "@/lib/reminders";
 import { getSettings, REGIONS } from "@/lib/settings";
+import { APP_VERSION } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Réglages" };
@@ -42,6 +43,14 @@ export default async function SettingsPage() {
       </Card>
       <Card title="Général">
         <GeneralSettings key={`${settings.timezone}-${settings.timezoneAuto}-${settings.watchRegion}-${settings.searchAdult}`} settings={settings} regions={REGIONS} />
+      </Card>
+      <Card title="À propos">
+        <p className="text-sm">
+          Omnilog <strong>v{APP_VERSION}</strong> ·{" "}
+          <a href="https://github.com/K3nt1/omnilog/blob/main/CHANGELOG.md" target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
+            Nouveautés de chaque version ↗
+          </a>
+        </p>
       </Card>
     </main>
   );

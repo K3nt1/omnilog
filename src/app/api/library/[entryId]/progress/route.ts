@@ -1,4 +1,5 @@
 // POST /api/library/12/progress  { "kind": "episode" } | { "kind": "pause", "seconds": 4350 } | { "kind": "session", "minutes": 90, "note": "…" } | { "kind": "undo" } …
+// « undated »: true sur une action vu / lu / joué : enregistrée sans date. { "kind": "markSeason", "season": 2 } : saison entière vue.
 // Progression sur une œuvre : épisode vu, chapitre lu, session de jeu, pause, fin, position, annulation.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
@@ -67,6 +68,11 @@ function parseAction(body: Record<string, unknown>): ProgressAction | null {
         review: typeof body.review === "string" ? body.review.slice(0, 20000) : undefined,
       };
     }
+    case "markSeason": {
+      const season = int(body.season);
+      if (season === undefined || season < 1) return null;
+      return { kind: "markSeason", season, date: date(body.date) };
+    }
     case "complete": {
       const rating = body.rating === null ? null : int(body.rating);
       if (rating !== undefined && rating !== null && (rating < 1 || rating > 10)) return null;
@@ -93,6 +99,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   const action = parseAction(body);
   if (!action) return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
+  // « Sans date » : vu / lu / joué sans préciser quand (pas pour une pause, une position ou une annulation).
+  if (body.undated === true && !["pause", "clearPause", "undo", "position"].includes(action.kind)) action.undated = true;
 
   const { env } = getCloudflareContext();
   // Tome lu : MangaDex donne son dernier chapitre, pour que le chapitre en cours avance aussi.

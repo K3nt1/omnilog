@@ -32,7 +32,7 @@ export function matchEpisodes(
       airDate: e.airDate,
       runtimeMinutes: e.runtimeMinutes,
       watched: last
-        ? { logId: last.id, at: last.at, rating: last.rating, review: last.review ?? matches.find((m) => m.review)?.review ?? null, count: matches.length }
+        ? { logId: last.id, at: last.at, undated: last.undated === 1, rating: last.rating, review: last.review ?? matches.find((m) => m.review)?.review ?? null, count: matches.length }
         : null,
     };
   });
