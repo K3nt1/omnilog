@@ -19,6 +19,7 @@ export const PAGE_SIZE = 60;
 export const ROW_SIZE = 14;
 
 interface CardRow {
+  follows_series?: number;
   /** Comics : numéros lus, « 1,2,8 » (GROUP_CONCAT). */
   read_issues?: string | null;
   entry_id: number;
@@ -58,6 +59,7 @@ const CARD_COLUMNS = `
   l.current_season, l.current_episode, l.current_chapter, l.current_volume, l.pause_seconds, l.pause_page,
   m.total_episodes, m.total_chapters, m.runtime_minutes, m.is_ongoing,
   l.drawn_at, l.game_checkpoint, l.playtime_minutes, l.sessions_count, m.release_json,
+  l.follows_series,
   CASE WHEN m.type = 'comic' THEN (
     SELECT GROUP_CONCAT(chapter) FROM (
       SELECT DISTINCT p.chapter FROM progress_log p
@@ -82,6 +84,7 @@ function toCard(row: CardRow): LibraryCard {
     currentSeason: row.current_season,
     currentEpisode: row.current_episode,
     currentChapter: row.current_chapter,
+    followsSeries: row.follows_series !== 0,
     readIssues: row.type === "comic" ? (row.read_issues ? row.read_issues.split(",").map(Number).filter(Number.isFinite) : []) : null,
     currentVolume: row.current_volume,
     pauseSeconds: row.pause_seconds,

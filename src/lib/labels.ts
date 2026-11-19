@@ -71,7 +71,9 @@ const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
 };
 
 /** Libellé d'un statut pour un type donné (« À lire », « Vus »…), ou tous types confondus si type = null. */
-export function statusLabel(status: LibraryStatus, type: MediaType | null, plural = false): string {
+/** `isolated` : comic en numéros isolés, lu → « Lu (numéros isolés) ». */
+export function statusLabel(status: LibraryStatus, type: MediaType | null, plural = false, isolated = false): string {
+  if (isolated && status === "completed" && type === "comic") return plural ? "Lus (numéros isolés)" : "Lu (numéros isolés)";
   switch (status) {
     case "planned":
       return type ? PLANNED[type] : "Watchlist / Backlog";

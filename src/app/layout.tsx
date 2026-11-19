@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppSetup } from "@/components/AppSetup";
 import { Nav } from "@/components/Nav";
+import { APP_VERSION } from "@/lib/version";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -54,6 +55,7 @@ export default function RootLayout({
 				<AppSetup />
 				<Nav />
 				{children}
+				<footer className="px-4 pb-6 pt-10 text-center text-xs text-white/30">Omnilog v{APP_VERSION}</footer>
 			</body>
 		</html>
 	);

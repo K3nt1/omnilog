@@ -107,12 +107,13 @@ export async function addToLibrary(
 
   const inserted = await db
     .prepare(
-      `INSERT INTO library_entries (user_id, media_id, media_type, status)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO library_entries (user_id, media_id, media_type, status, follows_series)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (user_id, media_id) DO NOTHING
        RETURNING id, status`,
     )
-    .bind(CURRENT_USER_ID, media.id, details.type, status)
+    // Un comic ajouté part en numéros isolés : « Je suis cette série » se règle sur la fiche.
+    .bind(CURRENT_USER_ID, media.id, details.type, status, details.type === "comic" ? 0 : 1)
     .first<{ id: number; status: LibraryStatus }>();
 
   if (inserted) {
@@ -264,6 +265,8 @@ export interface ImportedEntry {
   completedAt: string | null;
   /** Date d'ajout sur le site d'origine (AAAA-MM-JJ) ; sinon la date de l'import. */
   addedAt: string | null;
+  /** Comics : série suivie (1) ou numéros isolés (0) pour une nouvelle entrée ; une entrée existante garde son réglage. */
+  followsSeries?: 0 | 1;
 }
 
 /**
@@ -279,9 +282,9 @@ export async function upsertImportedEntry(
   const row = await db
     .prepare(
       `INSERT INTO library_entries (user_id, media_id, media_type, status, rating, review, is_favorite,
-                                    current_episode, current_chapter, started_at, completed_at, created_at, current_volume)
+                                    current_episode, current_chapter, started_at, completed_at, created_at, current_volume, follows_series)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), ?13)
+               COALESCE(?12, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), ?13, ?14)
        ON CONFLICT (user_id, media_id) DO UPDATE SET
          -- Date d'ajout : on garde la plus ancienne (plusieurs entrées Letterboxd peuvent viser la même série).
          created_at = MIN(created_at, excluded.created_at),
@@ -311,6 +314,7 @@ export async function upsertImportedEntry(
       entry.completedAt,
       entry.addedAt ? `${entry.addedAt}T00:00:00.000Z` : null,
       entry.currentVolume ?? null,
+      entry.followsSeries ?? 1,
     )
     .first<{ id: number }>();
   if (!row) throw new Error("Impossible d'enregistrer l'entrée de bibliothèque");

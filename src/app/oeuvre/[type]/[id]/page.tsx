@@ -475,7 +475,7 @@ export default async function FichePage({ params }: Props) {
               comicId={id}
               issueCount={f.totalChapters}
               entryId={entry?.id ?? null}
-              currentIssue={entry && entry.status !== "completed" ? (entry.currentChapter ?? 1) : null}
+              currentIssue={entry && entry.followsSeries && entry.status !== "completed" ? (entry.currentChapter ?? 1) : null}
             />
           </Section>
         )}

@@ -70,7 +70,7 @@ export function TrackingPanel({ entry, type }: { entry: LibraryEntry; type: Medi
         >
           {STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
-              {statusLabel(s, type)}
+              {statusLabel(s, type, false, type === "comic" && !entry.followsSeries)}
             </option>
           ))}
         </select>
