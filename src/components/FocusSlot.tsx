@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { LibraryCard } from "@/lib/browse-shared";
 import { ficheHref, plannedLabel, positionLine, TYPE_SINGULAR } from "@/lib/labels";
 import type { MediaType } from "@/lib/types";
+import { useDraw } from "./DrawReveal";
 import { useAction } from "./useAction";
 import { ReleaseText } from "./ReleaseText";
 
@@ -34,7 +35,9 @@ export function FocusSlot({
   large?: boolean;
 }) {
   const { run, busy, error } = useAction();
-  const draw = () => run("draw", "/api/draw", { type });
+  // Tirage au sort avec animation (affiches qui défilent puis s'arrêtent sur l'œuvre tirée).
+  const drawing = useDraw(type);
+  const draw = () => void drawing.start();
   const list = plannedLabel(type).toLowerCase();
 
   if (!card) {
@@ -48,15 +51,16 @@ export function FocusSlot({
           <button
             type="button"
             onClick={draw}
-            disabled={busy !== null}
+            disabled={busy !== null || drawing.busy}
             className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 disabled:opacity-50"
           >
-            {busy === "draw" ? "Tirage…" : `🎲 Tirer au sort dans ma ${list}`}
+            {drawing.busy ? "Tirage…" : `🎲 Tirer au sort dans ma ${list}`}
           </button>
         ) : (
           <p className="text-xs text-white/40">{plannedLabel(type)} vide</p>
         )}
-        {error && <p className="text-xs text-rose-400">{error}</p>}
+        {(error ?? drawing.error) && <p className="text-xs text-rose-400">{error ?? drawing.error}</p>}
+        {drawing.overlay}
       </div>
     );
   }
@@ -100,15 +104,16 @@ export function FocusSlot({
             <button
               type="button"
               onClick={draw}
-              disabled={busy !== null}
+              disabled={busy !== null || drawing.busy}
               className="rounded-md bg-white/10 px-2.5 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
             >
-              {busy === "draw" ? "…" : "🎲 Relancer"}
+              {drawing.busy ? "…" : "🎲 Relancer"}
             </button>
           )}
         </div>
-        {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
+        {(error ?? drawing.error) && <p className="mt-1 text-xs text-rose-400">{error ?? drawing.error}</p>}
       </div>
+      {drawing.overlay}
     </div>
   );
 }

@@ -41,6 +41,10 @@ function parsePatch(body: Record<string, unknown>): EntryPatch | string {
       patch[key] = v as string | null;
     }
   }
+  if ("followsSeries" in body) {
+    if (typeof body.followsSeries !== "boolean") return "Suivi de la série invalide.";
+    patch.followsSeries = body.followsSeries;
+  }
   if ("backdropPosition" in body) {
     const v = body.backdropPosition;
     if (v !== null && !(typeof v === "string" && /^(100|\d{1,2})% (100|\d{1,2})%$/.test(v))) return "Cadrage invalide.";

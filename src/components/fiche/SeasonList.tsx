@@ -6,6 +6,7 @@ import { dateLabel, durationLabel } from "@/lib/labels";
 import type { SeasonInfo } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { PROGRESS_EVENT, useAction } from "../useAction";
+import { DateInput, datedBody } from "./DateInput";
 import { StarRating } from "./StarRating";
 
 type Loaded = { status: "loading" } | { status: "error"; message: string } | { status: "done"; episodes: SeasonEpisodeResponse[] };
@@ -41,7 +42,7 @@ function EpisodeActions({
       kind: "markEpisode",
       season,
       episode: e.number,
-      date,
+      ...datedBody(date),
       ...(withDetails ? { rating, review: review.trim() || null } : {}),
     }).then(done);
   const save = (patch: Record<string, unknown>) => run("save", `/api/journal/${e.watched!.logId}`, patch, "PATCH").then(done);
@@ -51,7 +52,7 @@ function EpisodeActions({
     <div className="space-y-1.5 text-right text-xs">
       {e.watched ? (
         <>
-          <p className="text-emerald-300">✓ Vu le {dateLabel(e.watched.at)}</p>
+          <p className="text-emerald-300">{e.watched.undated ? "✓ Vu" : `✓ Vu le ${dateLabel(e.watched.at)}`}</p>
           {e.watched.count > 1 && <p className="text-white/50">{e.watched.count} visionnages</p>}
           <div className="flex justify-end">
             <StarRating small value={e.watched.rating} onChange={(r) => save({ rating: r })} disabled={busy !== null} />
@@ -85,13 +86,7 @@ function EpisodeActions({
           {!e.watched && (
             <div className="flex flex-wrap items-center gap-2">
               <StarRating small value={rating} onChange={setRating} />
-              <input
-                type="date"
-                value={date}
-                onChange={(ev) => setDate(ev.target.value || date)}
-                className="rounded border border-white/15 bg-white/5 px-2 py-0.5"
-                aria-label="Date du visionnage"
-              />
+              <DateInput value={date} onChange={setDate} />
             </div>
           )}
           <textarea
@@ -147,6 +142,27 @@ function Episode({ season, e, entryId, onChange }: { season: number; e: SeasonEp
 }
 
 /** Saisons d'une série : chacune se déroule pour afficher ses épisodes (chargés à la demande). */
+/** « ✓ Saison vue » : tous les épisodes de la saison au journal d'un coup (aujourd'hui, une autre date ou sans date). */
+function SeasonMark({ entryId, season, allWatched }: { entryId: number; season: number; allWatched: boolean }) {
+  const { run, busy, error } = useAction();
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <button
+        type="button"
+        disabled={busy !== null}
+        onClick={() => run("season", `/api/library/${entryId}/progress`, { kind: "markSeason", season, ...datedBody(date) })}
+        className="rounded-lg bg-white px-3 py-1.5 font-medium text-black hover:bg-white/90 disabled:opacity-50"
+      >
+        {busy === "season" ? "…" : allWatched ? "✓ Saison revue" : "✓ Saison vue"}
+      </button>
+      <DateInput value={date} onChange={setDate} />
+      <span className="text-xs text-white/50">{allWatched ? "Ajoute un revisionnage de chaque épisode." : "Coche les épisodes pas encore vus."}</span>
+      {error && <p className="w-full text-xs text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
 export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seasons: SeasonInfo[]; entryId: number | null }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState<Record<number, Loaded>>({});
@@ -230,6 +246,11 @@ export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seaso
                     <p className="py-3 text-sm text-white/60">Aucun épisode connu.</p>
                   ) : (
                     <ul className="divide-y divide-white/10">
+                      {entryId !== null && s.seasonNumber > 0 && (
+                        <li className="py-3">
+                          <SeasonMark entryId={entryId} season={s.seasonNumber} allWatched={state.episodes.every((e) => e.watched)} />
+                        </li>
+                      )}
                       {state.episodes.map((e) => (
                         <Episode key={`${e.number}-${e.watched?.logId ?? "non-vu"}`} season={s.seasonNumber} e={e} entryId={entryId} onChange={() => undefined} />
                       ))}

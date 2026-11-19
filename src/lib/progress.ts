@@ -60,6 +60,10 @@ interface LoadedEntry extends EntryState {
   id: number;
   /** Comics : numéros déjà lus (journal). */
   read_issues?: number[];
+  /** Comics : 1 = série suivie (position, prochain numéro), 0 = numéros isolés. */
+  follows_series: number;
+  /** « ✓ Saison vue » : épisodes déjà vus de cette saison. */
+  season_watched?: number[];
   media_type: MediaType;
   external_id: string | null;
   total_episodes: number | null;
@@ -68,7 +72,7 @@ interface LoadedEntry extends EntryState {
   is_ongoing: number;
 }
 
-export type ProgressAction =
+export type ProgressAction = (
   /** Pause dans le film / l'épisode en cours (secondes), ou page du chapitre en cours (manga). */
   | { kind: "pause"; seconds?: number; page?: number }
   | { kind: "clearPause" }
@@ -91,7 +95,13 @@ export type ProgressAction =
   | { kind: "markEpisode"; season: number; episode: number; date?: string; rating?: number | null; review?: string | null }
   /** Numéro précis coché dans la liste des numéros (comic), avec note et critique facultatives. */
   | { kind: "markIssue"; issue: number; date?: string; rating?: number | null; review?: string | null }
-  | { kind: "undo" };
+  /** Saison entière vue (série) : ses épisodes pas encore vus (ou tous, si elle l'était déjà : revisionnage). */
+  | { kind: "markSeason"; season: number; date?: string }
+  | { kind: "undo" }
+) & {
+  /** Vu / lu / joué sans date : au journal sans date (le calendrier ne le place sur aucun jour). */
+  undated?: boolean;
+};
 
 export class ProgressError extends Error {}
 
@@ -104,7 +114,7 @@ async function loadEntry(db: D1Database, entryId: number) {
     db
       .prepare(
         `SELECT l.id, l.media_type, ${STATE_COLUMNS.map((c) => (c === "is_focus" ? `${FOCUS_EXPR} AS is_focus` : `l.${c}`)).join(", ")},
-                m.external_id, m.total_episodes, m.total_chapters, m.total_volumes, m.is_ongoing
+                l.follows_series, m.external_id, m.total_episodes, m.total_chapters, m.total_volumes, m.is_ongoing
          FROM library_entries l JOIN media m ON m.id = l.media_id
          WHERE l.id = ? AND l.user_id = ?`,
       )
@@ -205,6 +215,13 @@ export function planAction(
    */
   const readIssue = (issue: number, log: Plan["logs"][number], date: string | undefined): Plan => {
     const read = [...(entry.read_issues ?? []), issue];
+    // Numéros isolés (achat au détail, numéro repris dans un recueil) : « Lu (numéros isolés) » dès un numéro lu,
+    // sans position ni prochain numéro.
+    if (!entry.follows_series) {
+      const set: Partial<EntryState> =
+        entry.status === "completed" ? {} : { status: "completed", completed_at: entry.completed_at ?? date ?? today(), drawn_at: null };
+      return { set, logs: [log], takeFocus: false, dropFocus: entry.status !== "completed" };
+    }
     if (!entry.is_ongoing && allIssuesRead(read, entry.total_chapters)) {
       const done = complete(date);
       return { ...done, set: { ...done.set, current_chapter: Math.floor(entry.total_chapters ?? issue) }, logs: [log, ...done.logs] };
@@ -430,6 +447,35 @@ export function planAction(
       };
     }
 
+    case "markSeason": {
+      if (entry.media_type !== "tv") throw new ProgressError("Seules les saisons de séries se marquent en entier.");
+      const target = seasons.find((s) => s.season === action.season);
+      if (!target || action.season < 1) throw new ProgressError("Épisodes de cette saison inconnus.");
+      const at = loggedAt(action.date);
+      const watched = new Set(entry.season_watched ?? []);
+      const all = Array.from({ length: target.episodes }, (_, i) => i + 1);
+      // Déjà toute vue : revisionnage de toute la saison ; sinon seulement les épisodes manquants.
+      const episodes = all.every((e) => watched.has(e)) ? all : all.filter((e) => !watched.has(e));
+      const logs = episodes.map((episode) => ({ kind: "episode", season: action.season, episode, at }));
+      const season = entry.current_season ?? 1;
+      // Saison avant la position actuelle : la position ne bouge pas.
+      if (action.season < season || (entry.status === "completed" && action.season <= season)) {
+        const status = entry.status === "planned" ? progressing : {};
+        return { set: status, logs, takeFocus: entry.status === "planned" && autoFocus };
+      }
+      const next = nextTvEpisode(seasons, action.season, target.episodes);
+      if (!next && !entry.is_ongoing) {
+        const done = complete(action.date);
+        return {
+          ...done,
+          set: { ...done.set, current_season: action.season, current_episode: target.episodes },
+          logs: [...logs, ...done.logs],
+        };
+      }
+      const after = next ?? { season: action.season, episode: target.episodes + 1 };
+      return { set: { ...progressing, current_season: after.season, current_episode: after.episode, pause_seconds: null }, logs, takeFocus: autoFocus };
+    }
+
     case "markIssue": {
       if (entry.media_type !== "comic") throw new ProgressError("Seuls les numéros de comics se cochent un par un.");
       if (!Number.isFinite(action.issue) || action.issue < 0) throw new ProgressError("Numéro invalide.");
@@ -466,10 +512,23 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
   const loaded = await loadEntry(db, entryId);
   if (!loaded) return null;
   const { entry, seasons, otherFocus } = loaded;
+  if (action.kind === "markSeason") {
+    const { results } = await db
+      .prepare("SELECT DISTINCT episode FROM progress_log WHERE entry_id = ? AND kind = 'episode' AND season = ? AND episode IS NOT NULL")
+      .bind(entryId, action.season)
+      .all<{ episode: number }>();
+    entry.season_watched = results.map((r) => r.episode);
+  }
   const plan = planAction(entry, seasons, otherFocus, action);
+  const undated = action.undated === true;
 
   const set: Partial<EntryState> = { ...plan.set };
   delete set.is_focus;
+  if (undated) {
+    // Sans date : pas de date de début ni de fin inventées (celles déjà saisies sont gardées).
+    if (set.started_at !== undefined && !entry.started_at) set.started_at = null;
+    if (set.completed_at !== undefined && !entry.completed_at) set.completed_at = null;
+  }
   const keys = Object.keys(set) as (keyof EntryState)[];
 
   const statements: D1PreparedStatement[] = [];
@@ -486,21 +545,21 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
     const undo = JSON.stringify({ group: crypto.randomUUID(), state: snapshot });
     const insert = db.prepare(
       `INSERT INTO progress_log (entry_id, kind, season, episode, chapter, volume, pause_seconds, pause_page,
-                                 duration_minutes, note, logged_at, rating, review, undo_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 duration_minutes, note, logged_at, rating, review, undo_json, undated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     if (plan.bulkEpisodes && plan.bulkEpisodes.length > 0) {
       // Une seule requête pour tous les épisodes sautés (déjà cochés : ignorés).
       statements.push(
         db
           .prepare(
-            `INSERT INTO progress_log (entry_id, kind, season, episode, logged_at, undo_json)
-             SELECT ?1, 'episode', json_extract(value, '$[0]'), json_extract(value, '$[1]'), ?2, ?3
+            `INSERT INTO progress_log (entry_id, kind, season, episode, logged_at, undo_json, undated)
+             SELECT ?1, 'episode', json_extract(value, '$[0]'), json_extract(value, '$[1]'), ?2, ?3, ?5
              FROM json_each(?4)
              WHERE NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = ?1 AND p.kind = 'episode'
                                AND p.season = json_extract(value, '$[0]') AND p.episode = json_extract(value, '$[1]'))`,
           )
-          .bind(entryId, plan.bulkEpisodes[0].at, undo, JSON.stringify(plan.bulkEpisodes.map((e) => [e.season, e.episode]))),
+          .bind(entryId, plan.bulkEpisodes[0].at, undo, JSON.stringify(plan.bulkEpisodes.map((e) => [e.season, e.episode])), undated ? 1 : 0),
       );
     }
     for (const log of plan.logs) {
@@ -520,6 +579,8 @@ export async function recordProgress(db: D1Database, entryId: number, action: Pr
           log.rating ?? null,
           log.review ?? null,
           undo,
+          // Les pauses gardent leur date (marque-page) ; le reste suit le choix « sans date ».
+          undated && log.kind !== "pause" ? 1 : 0,
         ),
       );
     }

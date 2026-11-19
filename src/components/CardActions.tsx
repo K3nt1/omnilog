@@ -22,7 +22,7 @@ export function CardActions({ card, popover = false }: { card: LibraryCard; /** 
         ? { kind: "episode", label: "+1 épisode" }
         : card.type === "manga"
           ? { kind: "chapter", label: "+1 chapitre" }
-          : card.type === "comic"
+          : card.type === "comic" && card.followsSeries
             ? { kind: "chapter", label: "+1 numéro" }
             : null;
   const item = "w-full rounded-md bg-white/10 px-2 py-1.5 text-left text-xs hover:bg-white/20 disabled:opacity-50";
@@ -87,7 +87,7 @@ export function CardActions({ card, popover = false }: { card: LibraryCard; /** 
       >
         {STATUS_ORDER.map((s) => (
           <option key={s} value={s}>
-            {statusLabel(s, card.type)}
+            {statusLabel(s, card.type, false, !card.followsSeries)}
           </option>
         ))}
       </select>

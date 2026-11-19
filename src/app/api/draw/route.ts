@@ -1,6 +1,7 @@
 // POST /api/draw  { "type": "movie" }
 // Tire au sort une œuvre de la watchlist / du backlog du type ; elle devient le focus.
 // Rappeler la route = « Relancer » : l'œuvre tirée avant (pas commencée) retourne dans la watchlist / le backlog.
+// Réponse : { entryId, picked: { title, posterUrl }, others: [...] } (affiches pour l'animation du tirage).
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { drawRandom } from "@/lib/progress";
@@ -19,5 +20,26 @@ export async function POST(request: NextRequest) {
   if (entryId === null) {
     return NextResponse.json({ error: "Rien à tirer au sort : la liste est vide." }, { status: 404 });
   }
-  return NextResponse.json({ entryId }, { headers: { "Cache-Control": "no-store" } });
+  // Pour l'animation : l'œuvre tirée et quelques autres affiches de la liste, qui défilent avant elle.
+  const [pickedRows, otherRows] = await env.DB.batch<{ title: string; poster_url: string | null }>([
+    env.DB.prepare(
+      `SELECT m.title, COALESCE(l.custom_poster_url, m.poster_url) AS poster_url
+       FROM library_entries l JOIN media m ON m.id = l.media_id WHERE l.id = ?`,
+    ).bind(entryId),
+    env.DB.prepare(
+      `SELECT m.title, COALESCE(l.custom_poster_url, m.poster_url) AS poster_url
+       FROM library_entries l JOIN media m ON m.id = l.media_id
+       WHERE l.media_type = ? AND l.status = 'planned' AND l.id <> ? AND COALESCE(l.custom_poster_url, m.poster_url) IS NOT NULL
+       ORDER BY random() LIMIT 12`,
+    ).bind(body.type, entryId),
+  ]);
+  const picked = pickedRows.results[0];
+  return NextResponse.json(
+    {
+      entryId,
+      picked: picked ? { title: picked.title, posterUrl: picked.poster_url } : null,
+      others: otherRows.results.map((r) => ({ title: r.title, posterUrl: r.poster_url })),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

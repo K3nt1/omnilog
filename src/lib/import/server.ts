@@ -1,5 +1,6 @@
 // Logique d'import côté serveur : une œuvre à la fois, appelée par /api/import.
 import {
+  CURRENT_USER_ID,
   findImportLinks,
   findOtherImportLink,
   insertImportedLogs,
@@ -283,11 +284,17 @@ export async function importLocgSeries(env: CloudflareEnv, series: LocgSeries, k
       .first<{ title: string; external_id: string; total_chapters: number | null; is_ongoing: number }>();
     if (!media) throw new Error("Série introuvable après l'enregistrement");
     const read = series.issues.filter((i) => i.read);
-    const { status, currentChapter } = locgProgress(
-      read.map((i) => i.number),
-      { totalChapters: media.total_chapters, isOngoing: media.is_ongoing === 1 },
-    );
+    // Série déjà suivie dans Omnilog : position et statut d'une série suivie. Sinon (nouvelle série, ou réglée
+    // en numéros isolés) : « Lu (numéros isolés) » dès un numéro lu, backlog sinon.
+    const existing = await env.DB.prepare("SELECT follows_series FROM library_entries WHERE user_id = ? AND media_id = ?")
+      .bind(CURRENT_USER_ID, mediaId)
+      .first<{ follows_series: number }>();
+    const follows = existing?.follows_series === 1;
+    const { status, currentChapter } = follows
+      ? locgProgress(read.map((i) => i.number), { totalChapters: media.total_chapters, isOngoing: media.is_ongoing === 1 })
+      : { status: (read.length > 0 ? "completed" : "planned") as LibraryStatus, currentChapter: null };
     const entryId = await upsertImportedEntry(env.DB, mediaId, "comic", {
+      followsSeries: 0,
       status,
       rating: null, // LoCG note les numéros, pas la série
       review: null,

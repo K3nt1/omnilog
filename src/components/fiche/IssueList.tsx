@@ -5,6 +5,7 @@ import type { ComicIssueResponse } from "@/lib/fiche/types";
 import { dateLabel } from "@/lib/labels";
 import { htmlToPlain, RichText } from "../RichText";
 import { PROGRESS_EVENT, useAction } from "../useAction";
+import { DateInput, datedBody } from "./DateInput";
 import { StarRating } from "./StarRating";
 
 /** « ✓ Lu le 5 oct. 2026 », ou « ✓ Lu » quand la date est inconnue (import). */
@@ -30,7 +31,7 @@ function IssueActions({ entryId, issue, number }: { entryId: number; issue: Comi
     run("mark", `/api/library/${entryId}/progress`, {
       kind: "markIssue",
       issue: number,
-      date,
+      ...datedBody(date),
       ...(withDetails ? { rating, review: review.trim() || null } : {}),
     }).then(done);
   const save = (patch: Record<string, unknown>) => run("save", `/api/journal/${issue.read!.logId}`, patch, "PATCH").then(done);
@@ -74,13 +75,7 @@ function IssueActions({ entryId, issue, number }: { entryId: number; issue: Comi
           {!issue.read && (
             <div className="flex flex-wrap items-center gap-2">
               <StarRating small value={rating} onChange={setRating} />
-              <input
-                type="date"
-                value={date}
-                onChange={(ev) => setDate(ev.target.value || date)}
-                className="rounded border border-white/15 bg-white/5 px-2 py-0.5"
-                aria-label="Date de lecture"
-              />
+              <DateInput value={date} onChange={setDate} />
             </div>
           )}
           <textarea
