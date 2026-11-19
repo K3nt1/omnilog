@@ -51,9 +51,9 @@ export default function RootLayout({
 				{/* Chrome peut proposer l'installation avant que React ne démarre : on garde l'invitation dès le début. */}
 				<script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_SCRIPT }} />
 			</head>
-			<body className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-neutral-950 text-white antialiased`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-neutral-950 pb-[calc(4rem+env(safe-area-inset-bottom))] text-white antialiased md:pb-0`}>
 				<AppSetup />
-				<Nav />
+				<Nav version={APP_VERSION} />
 				{children}
 				<footer className="px-4 pb-6 pt-10 text-center text-xs text-white/30">Omnilog v{APP_VERSION}</footer>
 			</body>
