@@ -122,6 +122,8 @@ export interface LibraryCard {
   releaseDate: string | null;
   posterUrl: string | null;
   status: LibraryStatus;
+  /** Jeux : 🏆 fini à 100 %. */
+  mastered: boolean;
   isFocus: boolean;
   isFavorite: boolean;
   rating: number | null;

@@ -1,7 +1,7 @@
 // Accès à la base D1 pour la bibliothèque.
 import type { LibraryStatus, MediaDetails, SearchResult } from "./types";
 import { mediaSearchText } from "./search-text";
-import { resultKey, type MediaSource, type MediaType } from "./types";
+import { GAME_ONLY_STATUSES, resultKey, storedStatus, type MediaSource, type MediaType } from "./types";
 
 /** Utilisateur unique pour l'instant (créé par la migration 0002). */
 export const CURRENT_USER_ID = 1;
@@ -18,7 +18,7 @@ export async function findLibraryStatuses(
   const placeholders = ids.map(() => "?").join(", ");
   const { results: rows } = await db
     .prepare(
-      `SELECT m.type, m.source, m.external_id, l.status
+      `SELECT m.type, m.source, m.external_id, l.list_status AS status
        FROM library_entries l
        JOIN media m ON m.id = l.media_id
        WHERE l.user_id = ? AND m.external_id IN (${placeholders})`,
@@ -103,17 +103,19 @@ export async function addToLibrary(
   details: MediaDetails,
   status: LibraryStatus,
 ): Promise<AddResult> {
+  if (details.type !== "game" && GAME_ONLY_STATUSES.includes(status)) throw new Error("Statut réservé aux jeux.");
   const media = { id: await upsertMedia(db, details) };
+  const stored = storedStatus(status);
 
   const inserted = await db
     .prepare(
-      `INSERT INTO library_entries (user_id, media_id, media_type, status, follows_series)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO library_entries (user_id, media_id, media_type, status, substatus, follows_series)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, media_id) DO NOTHING
-       RETURNING id, status`,
+       RETURNING id, list_status AS status`,
     )
     // Un comic ajouté part en numéros isolés : « Je suis cette série » se règle sur la fiche.
-    .bind(CURRENT_USER_ID, media.id, details.type, status, details.type === "comic" ? 0 : 1)
+    .bind(CURRENT_USER_ID, media.id, details.type, stored.status, stored.substatus, details.type === "comic" ? 0 : 1)
     .first<{ id: number; status: LibraryStatus }>();
 
   if (inserted) {
@@ -123,7 +125,7 @@ export async function addToLibrary(
   }
 
   const existing = await db
-    .prepare("SELECT id, status FROM library_entries WHERE user_id = ? AND media_id = ?")
+    .prepare("SELECT id, list_status AS status FROM library_entries WHERE user_id = ? AND media_id = ?")
     .bind(CURRENT_USER_ID, media.id)
     .first<{ id: number; status: LibraryStatus }>();
   if (!existing) throw new Error("Entrée de bibliothèque introuvable après insertion");

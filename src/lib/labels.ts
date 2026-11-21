@@ -42,6 +42,8 @@ export const STATUS_SLUGS: Record<LibraryStatus, string> = {
   on_hold: "en-pause",
   completed: "termine",
   dropped: "abandonne",
+  played: "joue",
+  wishlist: "envies",
 };
 
 export function statusFromSlug(slug: string | undefined): LibraryStatus | null {
@@ -49,7 +51,7 @@ export function statusFromSlug(slug: string | undefined): LibraryStatus | null {
 }
 
 /** Ordre d'affichage des statuts dans les filtres. */
-export const STATUS_ORDER: LibraryStatus[] = ["in_progress", "planned", "completed", "on_hold", "dropped"];
+export const STATUS_ORDER: LibraryStatus[] = ["in_progress", "planned", "wishlist", "completed", "played", "on_hold", "dropped"];
 
 /** Watchlist pour ce qu'on regarde, backlog pour ce qu'on lit ou joue. */
 const PLANNED: Record<MediaType, string> = {
@@ -66,7 +68,7 @@ const COMPLETED: Record<MediaType, [singular: string, plural: string]> = {
   tv: ["Vue", "Vues"],
   anime: ["Vu", "Vus"],
   manga: ["Lu", "Lus"],
-  game: ["Joué", "Joués"],
+  game: ["Terminé", "Terminés"], // « Joué » est un statut à part (joué sans être terminé)
   comic: ["Lu", "Lus"],
 };
 
@@ -85,6 +87,10 @@ export function statusLabel(status: LibraryStatus, type: MediaType | null, plura
       return type ? COMPLETED[type][plural ? 1 : 0] : plural ? "Terminés" : "Terminé";
     case "dropped":
       return plural ? "Abandonnés" : "Abandonné";
+    case "played":
+      return plural ? "Joués" : "Joué";
+    case "wishlist":
+      return "Envies";
   }
 }
 

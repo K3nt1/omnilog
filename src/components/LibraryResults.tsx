@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { VIEW_COOKIE, type LibraryCard, type PosterSize, type SortKey, type ViewPrefs } from "@/lib/browse-shared";
 import { sortDetail, STATUS_ORDER, statusLabel } from "@/lib/labels";
-import type { LibraryStatus, MediaType } from "@/lib/types";
+import { statusesFor, type LibraryStatus, type MediaType } from "@/lib/types";
 import { MediaCard } from "./MediaCard";
 import { MediaRow } from "./MediaRow";
 import { useAction } from "./useAction";
@@ -166,7 +166,7 @@ export function LibraryResults({ cards, prefs, showType, sort, type }: Props) {
             className="rounded-lg border border-white/15 bg-neutral-900 px-3 py-1.5 text-sm disabled:opacity-50"
           >
             <option value="">{busy === "status" ? "…" : "Changer le statut…"}</option>
-            {STATUS_ORDER.map((s) => (
+            {STATUS_ORDER.filter((s) => statusesFor(labelType).includes(s)).map((s) => (
               <option key={s} value={s}>
                 {statusLabel(s, labelType)}
               </option>

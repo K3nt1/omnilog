@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     env.DB.prepare(
       `SELECT m.title, COALESCE(l.custom_poster_url, m.poster_url) AS poster_url
        FROM library_entries l JOIN media m ON m.id = l.media_id
-       WHERE l.media_type = ? AND l.status = 'planned' AND l.id <> ? AND COALESCE(l.custom_poster_url, m.poster_url) IS NOT NULL
+       WHERE l.media_type = ? AND l.status = 'planned' AND l.substatus IS NULL AND l.id <> ? AND COALESCE(l.custom_poster_url, m.poster_url) IS NOT NULL
        ORDER BY random() LIMIT 12`,
     ).bind(body.type, entryId),
   ]);
