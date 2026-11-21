@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/K3nt1/omnilog/compare/v0.10.0...v0.11.0) (2026-11-21)
+
+
+### ✨ Nouveautés
+
+* **import:** import Backloggd ([#101](https://github.com/K3nt1/omnilog/issues/101)) ([44a9436](https://github.com/K3nt1/omnilog/commit/44a94364037c2774ec63ba77f263a93e41ecbe0a))
+* **jeux:** statuts Joué et Envies, trophée Masterisé ([#100](https://github.com/K3nt1/omnilog/issues/100)) ([2ab605d](https://github.com/K3nt1/omnilog/commit/2ab605dd8abaf201937b701a573d2cfc9ec6fdd6))
+
 ## [0.10.0](https://github.com/K3nt1/omnilog/compare/v0.9.0...v0.10.0) (2026-11-21)
 
 
