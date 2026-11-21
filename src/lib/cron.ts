@@ -4,7 +4,7 @@
 //    (nouveaux épisodes, chapitres, saisons) ;
 // 3. aux autres quarts d'heure, nouveautés lentes : plateformes, saisons des séries terminées, suites, DLC.
 // Plan gratuit : 10 ms de CPU et 50 appels sortants par exécution, d'où des petits lots.
-import { localNow } from "./local-time";
+import { localNow, minutesOf } from "./local-time";
 import { checkDueNews } from "./news";
 import { pushConfigured, queueMessage, wakeDevices, type PushEnv } from "./push";
 import { refreshUpcomingReleases } from "./fiche-actions";
@@ -21,6 +21,24 @@ export interface CronReport {
   checked: number;
   /** Films et jeux à venir relus chez leur source (dates de sortie). */
   upcoming: number;
+  /** Notification « ton bilan est prêt » envoyée (31 décembre, 16 h). */
+  bilan: boolean;
+}
+
+/** Le 31 décembre à partir de 16 h (heure locale), une seule fois : « Ton bilan est prêt ». */
+export async function sendBilanNotice(env: CloudflareEnv & PushEnv, at = new Date()): Promise<boolean> {
+  const { timezone } = await getSettings(env.DB);
+  const now = localNow(timezone, at);
+  if (!now.date.endsWith("-12-31") || minutesOf(now.time) < 16 * 60) return false;
+  const year = now.date.slice(0, 4);
+  // Marqueur dans source_cache : déjà envoyé cette année ? (INSERT OR IGNORE : une seule exécution gagne.)
+  const marker = await env.DB.prepare("INSERT OR IGNORE INTO source_cache (key, body, fetched_at) VALUES (?, '1', ?)")
+    .bind(`bilan-notif:${year}`, at.toISOString())
+    .run();
+  if (!marker.meta.changes) return false;
+  await queueMessage(env.DB, { title: `🎁 Ton bilan ${year} est prêt`, body: "Tes heures, ton top, tes records… et ton image à partager.", url: `/bilan/${year}`, tag: "bilan" });
+  if (pushConfigured(env)) await wakeDevices(env);
+  return true;
 }
 
 /** Envoie les rappels dus maintenant ; renvoie le nombre de messages créés. */
@@ -45,6 +63,9 @@ export async function sendDueReminders(env: CloudflareEnv & PushEnv, at = new Da
 
 export async function runScheduled(env: CloudflareEnv & PushEnv, at = new Date()): Promise<CronReport> {
   const { sent, devices } = await sendDueReminders(env, at);
+  // Seulement autour du 31 décembre (quel que soit le fuseau) : aucune lecture le reste de l'année.
+  const aroundNewYear = (at.getUTCMonth() === 11 && at.getUTCDate() >= 30) || (at.getUTCMonth() === 0 && at.getUTCDate() === 1);
+  const bilan = aroundNewYear ? await sendBilanNotice(env, at) : false;
   // Les sorties : une fois par heure suffit (exécution de la minute 0).
   const refreshed = at.getUTCMinutes() < 15 ? await refreshDueReleases(env) : 0;
   // Les autres exécutions (minutes 15, 30, 45) : nouveautés lentes, par petits lots.
@@ -56,5 +77,5 @@ export async function runScheduled(env: CloudflareEnv & PushEnv, at = new Date()
     await env.DB.prepare("DELETE FROM push_messages WHERE created_at < ?").bind(new Date(at.getTime() - 30 * 86400_000).toISOString()).run();
     await pruneSourceCache(env.DB, 7, at.getTime());
   }
-  return { sent, devices, refreshed, checked, upcoming };
+  return { sent, devices, refreshed, checked, upcoming, bilan };
 }

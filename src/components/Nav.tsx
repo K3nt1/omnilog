@@ -10,6 +10,7 @@ const TYPE_ICONS: Record<MediaType, string> = { movie: "🎬", tv: "📺", anime
 const TYPE_LINKS = MEDIA_TYPES.map((t) => ({ type: t, href: `/${TYPE_SLUGS[t]}`, label: TYPE_LABELS[t], icon: TYPE_ICONS[t] }));
 /** Entrées du menu « Plus » (téléphone) et de la roue (ordinateur) : pages moins fréquentes. */
 const TOOLS = [
+  { href: "/bilan", label: "Bilan", icon: "🎁" },
   { href: "/import", label: "Importer", icon: "⬇" },
   { href: "/reglages", label: "Réglages", icon: "⚙" },
 ];
@@ -150,6 +151,9 @@ export function Nav({ version }: { version: string }) {
             <Link href="/calendrier" className={top(isActive("/calendrier"))}>
               Calendrier
             </Link>
+            <Link href="/bilan" className={top(isActive("/bilan"))}>
+              Bilan
+            </Link>
             <span className="flex-1" />
             <form
               role="search"
@@ -181,7 +185,7 @@ export function Nav({ version }: { version: string }) {
               </button>
               {menu === "tools" && (
                 <div role="menu" className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-white/15 bg-neutral-900 p-1.5 shadow-2xl">
-                  {TOOLS.map((l) => (
+                  {TOOLS.filter((l) => l.href !== "/bilan").map((l) => (
                     <Link key={l.href} role="menuitem" href={l.href} className={item}>
                       <span>
                         <span className="mr-2">{l.icon}</span>
