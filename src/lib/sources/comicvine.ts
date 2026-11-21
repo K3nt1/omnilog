@@ -245,14 +245,15 @@ export function lastIssueNumber(volume: Pick<CvVolume, "last_issue" | "count_of_
 export function comicRelease(recent: CvIssue[], now = new Date()): ReleaseInfo | null {
   const today = now.toISOString().slice(0, 10);
   const dated = recent
-    .map((issue) => ({ number: issueNumber(issue.issue_number), date: issueDate(issue)?.slice(0, 10) ?? null }))
-    .filter((i): i is { number: number; date: string } => i.number !== null && i.date !== null);
+    .map((issue) => ({ number: issueNumber(issue.issue_number), date: issueDate(issue)?.slice(0, 10) ?? null, approx: !issue.store_date }))
+    .filter((i): i is { number: number; date: string; approx: boolean } => i.number !== null && i.date !== null);
   const upcoming = dated.filter((i) => i.date > today).sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
   const released = dated.filter((i) => i.date <= today).sort((a, b) => b.date.localeCompare(a.date) || b.number - a.number);
   const last = released[0];
   const next = upcoming[0];
   const lastLabel = last ? issueLabel(last.number) : "";
-  if (next) return { kind: "next", label: issueLabel(next.number), at: next.date, precision: "day", lastLabel };
+  // Sans date de mise en vente, la date de couverture ne donne que le mois.
+  if (next) return { kind: "next", label: issueLabel(next.number), at: next.date, precision: "day", lastLabel, ...(next.approx ? { approx: true } : {}) };
   if (last) return { kind: "last", label: lastLabel, at: last.date, precision: "day", lastLabel };
   return null;
 }
