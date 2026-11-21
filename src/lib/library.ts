@@ -44,20 +44,46 @@ export interface AddResult {
  * Renvoie l'identifiant interne de l'œuvre.
  */
 export async function upsertMedia(db: D1Database, details: MediaDetails): Promise<number> {
-  const media = await db
+  const media = await upsertMediaStatement(db, details).first<{ id: number }>();
+
+  if (!media) throw new Error("Impossible d'enregistrer l'œuvre dans le catalogue");
+
+  if (details.seasons.length > 0) {
+    const upsertSeason = db.prepare(
+      `INSERT INTO media_seasons (media_id, season_number, episode_count, name, air_date)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (media_id, season_number) DO UPDATE SET
+         episode_count = excluded.episode_count, name = excluded.name, air_date = excluded.air_date`,
+    );
+    await db.batch(
+      details.seasons.map((s) => upsertSeason.bind(media.id, s.seasonNumber, s.episodeCount, s.name, s.airDate)),
+    );
+  }
+  return media.id;
+}
+
+/**
+ * Requête d'enregistrement d'une œuvre (sans ses saisons), qui renvoie son identifiant : à exécuter seule ou dans
+ * un lot. `keepExisting` : une œuvre déjà au catalogue n'est pas modifiée (import en masse, fiche partielle).
+ */
+export function upsertMediaStatement(db: D1Database, details: MediaDetails, keepExisting = false): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO media (type, source, external_id, title, original_title, overview, poster_url, backdrop_url,
                           release_date, runtime_minutes, total_episodes, total_chapters, total_volumes,
                           is_ongoing, extra_json, fetched_at, search_text)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-       ON CONFLICT (type, source, external_id) DO UPDATE SET
-         title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
+       ON CONFLICT (type, source, external_id) DO UPDATE SET ${
+         keepExisting
+           ? "fetched_at = media.fetched_at"
+           : `title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
          poster_url = excluded.poster_url, backdrop_url = excluded.backdrop_url,
          release_date = excluded.release_date, runtime_minutes = excluded.runtime_minutes,
          total_episodes = excluded.total_episodes, total_chapters = excluded.total_chapters,
          total_volumes = excluded.total_volumes, is_ongoing = excluded.is_ongoing,
          extra_json = excluded.extra_json, fetched_at = excluded.fetched_at,
-         search_text = excluded.search_text
+         search_text = excluded.search_text`
+       }
        RETURNING id`,
     )
     .bind(
@@ -78,23 +104,7 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
       JSON.stringify(details.extra),
       new Date().toISOString(),
       mediaSearchText(details.title, details.originalTitle),
-    )
-    .first<{ id: number }>();
-
-  if (!media) throw new Error("Impossible d'enregistrer l'œuvre dans le catalogue");
-
-  if (details.seasons.length > 0) {
-    const upsertSeason = db.prepare(
-      `INSERT INTO media_seasons (media_id, season_number, episode_count, name, air_date)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (media_id, season_number) DO UPDATE SET
-         episode_count = excluded.episode_count, name = excluded.name, air_date = excluded.air_date`,
     );
-    await db.batch(
-      details.seasons.map((s) => upsertSeason.bind(media.id, s.seasonNumber, s.episodeCount, s.name, s.airDate)),
-    );
-  }
-  return media.id;
 }
 
 /** Ajoute l'œuvre à ta bibliothèque si elle n'y est pas déjà (bouton « + À voir »). */
