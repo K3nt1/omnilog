@@ -68,7 +68,11 @@
       const html = await get(url);
       const games = parseGames(html);
       let added = 0;
-      for (const g of games) if (!all.has(g.id)) (all.set(g.id, g), added++);
+      for (const g of games) {
+        if (all.has(g.id)) continue;
+        all.set(g.id, g);
+        added++;
+      }
       log(`${label} : page ${page}, ${all.size} jeux`);
       const next = html.match(/id="games_pagination"[^>]*src="([^"]+)"/)?.[1];
       url = added > 0 && next ? decode(next) : null;
