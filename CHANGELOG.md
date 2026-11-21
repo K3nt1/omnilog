@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/K3nt1/omnilog/compare/v0.9.0...v0.10.0) (2026-11-21)
+
+
+### ✨ Nouveautés
+
+* **calendrier:** sorties à venir ([#96](https://github.com/K3nt1/omnilog/issues/96)) ([b88b7e1](https://github.com/K3nt1/omnilog/commit/b88b7e1d2d13c59d0d31f58f7bb9a5fa58c17ba9))
+* refondre la navigation ([#94](https://github.com/K3nt1/omnilog/issues/94)) ([4d5ba38](https://github.com/K3nt1/omnilog/commit/4d5ba38439a23e0c835cc8d99f3f14fc307be040))
+
+
+### 🐛 Corrections
+
+* **calendrier:** détail du jour à la hauteur de la grille avec défilement interne ([#93](https://github.com/K3nt1/omnilog/issues/93)) ([1bb3f1b](https://github.com/K3nt1/omnilog/commit/1bb3f1b12a83f5cf3a4d5ec6841c532e2fdcb5f5))
+* **rappels:** ne pas envoyer un rappel déjà coché Fait ou Passer ([#95](https://github.com/K3nt1/omnilog/issues/95)) ([cf5c781](https://github.com/K3nt1/omnilog/commit/cf5c781aa6b71df30c188f5bfdcd03d17889f3ab))
+
 ## [0.9.0](https://github.com/K3nt1/omnilog/compare/v0.8.1...v0.9.0) (2026-11-19)
 
 
