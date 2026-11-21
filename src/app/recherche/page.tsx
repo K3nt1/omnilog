@@ -141,13 +141,13 @@ function SearchPage() {
     });
   }
 
-  async function add(result: SearchResult) {
+  async function add(result: SearchResult, wanted: LibraryStatus = "planned") {
     setAddStates((s) => ({ ...s, [result.key]: "adding" }));
     try {
       const res = await fetch("/api/library", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: result.type, externalId: result.externalId }),
+        body: JSON.stringify({ type: result.type, externalId: result.externalId, status: wanted }),
       });
       const json = (await res.json()) as { status?: LibraryStatus; error?: string };
       if (!res.ok || !json.status) throw new Error(json.error ?? "Ajout impossible.");
@@ -273,6 +273,12 @@ function SearchPage() {
                         : addStates[r.key] === "error"
                           ? "Échec, réessayer"
                           : `+ ${plannedLabel(r.type)}`}
+                    </button>
+                  )}
+                  {/* Jeu : « Envies » pour un jeu que tu n'as pas encore. */}
+                  {!r.libraryStatus && r.type === "game" && addStates[r.key] !== "adding" && (
+                    <button type="button" onClick={() => add(r, "wishlist")} className="mt-1 w-full rounded-md px-2 py-0.5 text-xs text-white/60 hover:bg-white/10 hover:text-white">
+                      + Envies
                     </button>
                   )}
                 </div>

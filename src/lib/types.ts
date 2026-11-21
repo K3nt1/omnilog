@@ -6,8 +6,25 @@ export type MediaType = (typeof MEDIA_TYPES)[number];
 export const MEDIA_SOURCES = ["tmdb", "igdb", "mal", "comicvine"] as const;
 export type MediaSource = (typeof MEDIA_SOURCES)[number];
 
-export const LIBRARY_STATUSES = ["planned", "in_progress", "on_hold", "completed", "dropped"] as const;
+export const LIBRARY_STATUSES = ["planned", "in_progress", "on_hold", "completed", "dropped", "played", "wishlist"] as const;
 export type LibraryStatus = (typeof LIBRARY_STATUSES)[number];
+
+/**
+ * Statuts réservés aux jeux : « Joué » (joué sans être terminé) et « Envies » (pas encore à toi).
+ * En base, ce sont un jeu terminé ou prévu précisé par `substatus` ; `list_status` donne le statut affiché.
+ */
+export const GAME_ONLY_STATUSES: readonly LibraryStatus[] = ["played", "wishlist"];
+
+/** Statuts proposés pour un type (les statuts réservés aux jeux n'apparaissent que pour les jeux). */
+export const statusesFor = (type: MediaType | null): LibraryStatus[] =>
+  LIBRARY_STATUSES.filter((s) => type === "game" || type === null || !GAME_ONLY_STATUSES.includes(s));
+
+/** Statut enregistré en base (`status`, `substatus`) pour un statut affiché. */
+export function storedStatus(status: LibraryStatus): { status: Exclude<LibraryStatus, "played" | "wishlist">; substatus: "played" | "wishlist" | null } {
+  if (status === "played") return { status: "completed", substatus: "played" };
+  if (status === "wishlist") return { status: "planned", substatus: "wishlist" };
+  return { status, substatus: null };
+}
 
 /** Quelle source fournit quel type de média. */
 export const SOURCE_FOR_TYPE: Record<MediaType, MediaSource> = {

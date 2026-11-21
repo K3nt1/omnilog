@@ -2,7 +2,7 @@
 import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID } from "./library";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
-import { SOURCE_FOR_TYPE, type LibraryStatus, type MediaType } from "./types";
+import { GAME_ONLY_STATUSES, SOURCE_FOR_TYPE, storedStatus, type LibraryStatus, type MediaType } from "./types";
 
 export interface StoredMedia {
   id: number;
@@ -57,6 +57,8 @@ export interface LibraryEntry {
   followsSeries: boolean;
   /** Comics : nombre de numéros différents lus. */
   issuesRead: number;
+  /** Jeux : 🏆 fini à 100 %. */
+  mastered: boolean;
 }
 
 export interface JournalLine {
@@ -105,6 +107,7 @@ interface MediaRow {
   release_json: string | null;
   entry_id: number | null;
   status: LibraryStatus;
+  mastered: number;
   is_focus: number;
   is_favorite: number;
   rating: number | null;
@@ -161,7 +164,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
   const [mediaRows, journalRows, userRows, tagRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT m.*, l.id AS entry_id, l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
+        `SELECT m.*, l.id AS entry_id, l.list_status AS status, l.mastered, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
                 l.started_at, l.completed_at, l.created_at AS added_at, l.custom_poster_url, l.custom_backdrop_url,
                 l.backdrop_position, l.current_season, l.current_episode, l.current_chapter, l.current_volume, l.pause_seconds, l.pause_page,
                 l.game_checkpoint, l.sessions_count, l.playtime_minutes, l.drawn_at, l.follows_series,
@@ -242,6 +245,7 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
           canUndo: row.can_undo === 1,
           followsSeries: row.follows_series !== 0,
           issuesRead: row.issues_read ?? 0,
+          mastered: row.mastered === 1,
         }
       : null;
 
@@ -276,7 +280,7 @@ export async function getLibraryStatuses(
   if (ids.length === 0) return statuses;
   const { results } = await db
     .prepare(
-      `SELECT m.type, m.external_id, l.status FROM library_entries l JOIN media m ON m.id = l.media_id
+      `SELECT m.type, m.external_id, l.list_status AS status FROM library_entries l JOIN media m ON m.id = l.media_id
        WHERE l.user_id = ? AND m.external_id IN (${ids.map(() => "?").join(", ")})`,
     )
     .bind(CURRENT_USER_ID, ...ids)
@@ -299,12 +303,19 @@ export interface EntryPatch {
   backdropPosition?: string | null;
   /** Comics : suivre la série (true) ou numéros isolés (false) ; le statut et la position sont recalculés. */
   followsSeries?: boolean;
+  /** Jeux : 🏆 fini à 100 % (indépendant du statut). */
+  mastered?: boolean;
 }
 
 /** Morceaux du SET pour un changement de statut (dates remplies ou effacées selon le statut). */
 function statusParts(patch: EntryPatch): [sql: string, params: unknown[]][] {
   if (patch.status === undefined) return [];
-  const parts: [string, unknown[]][] = [["status = ?", [patch.status]]];
+  // « Joué » et « Envies » : un jeu terminé ou prévu, précisé par substatus (écrits ensemble, voir 0018).
+  const stored = storedStatus(patch.status);
+  const parts: [string, unknown[]][] = [
+    ["status = ?", [stored.status]],
+    ["substatus = ?", [stored.substatus]],
+  ];
   // Dates remplies automatiquement si elles sont vides (modifiables ensuite).
   if (patch.status === "completed" && patch.completedAt === undefined) {
     parts.push(["completed_at = COALESCE(completed_at, date('now'))", []]);
@@ -313,7 +324,7 @@ function statusParts(patch: EntryPatch): [sql: string, params: unknown[]][] {
     parts.push(["started_at = COALESCE(started_at, date('now'))", []]);
   }
   // Retour dans la watchlist / le backlog : pas encore commencée, donc pas de dates.
-  if (patch.status === "planned") {
+  if (patch.status === "planned" || patch.status === "wishlist") {
     if (patch.startedAt === undefined) parts.push(["started_at = NULL", []]);
     if (patch.completedAt === undefined) parts.push(["completed_at = NULL", []]);
   }
@@ -321,7 +332,10 @@ function statusParts(patch: EntryPatch): [sql: string, params: unknown[]][] {
 }
 
 /** Une œuvre terminée ou abandonnée n'est plus « en ce moment ». */
-const leavesFocus = (status: LibraryStatus | undefined) => status === "completed" || status === "dropped";
+const leavesFocus = (status: LibraryStatus | undefined) => status === "completed" || status === "played" || status === "dropped";
+
+/** « Joué », « Envies » et 🏆 ne concernent que les jeux : la modification ne touche alors que des jeux. */
+const gameOnly = (patch: EntryPatch) => (patch.status !== undefined && GAME_ONLY_STATUSES.includes(patch.status)) || patch.mastered !== undefined;
 
 /**
  * Comics : passer en série suivie ou en numéros isolés, avec le statut qui va avec.
@@ -374,6 +388,7 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   if (patch.customPosterUrl !== undefined) parts.push(["custom_poster_url = ?", [patch.customPosterUrl]]);
   if (patch.customBackdropUrl !== undefined) parts.push(["custom_backdrop_url = ?", [patch.customBackdropUrl]]);
   if (patch.backdropPosition !== undefined) parts.push(["backdrop_position = ?", [patch.backdropPosition]]);
+  if (patch.mastered !== undefined) parts.push(["mastered = ?", [patch.mastered ? 1 : 0]]);
   if (patch.followsSeries !== undefined) {
     const follow = await comicFollowParts(db, entryId, patch.followsSeries);
     if (!follow) return false;
@@ -382,7 +397,9 @@ export async function updateEntry(db: D1Database, entryId: number, patch: EntryP
   if (parts.length === 0) return true;
 
   const update = db
-    .prepare(`UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ? AND user_id = ?`)
+    .prepare(
+      `UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")} WHERE id = ? AND user_id = ?${gameOnly(patch) ? " AND media_type = 'game'" : ""}`,
+    )
     .bind(...parts.flatMap(([, params]) => params), entryId, CURRENT_USER_ID);
   const [result] = await db.batch(
     // Numéros isolés : plus de « prochain numéro », donc plus de focus.
@@ -411,7 +428,7 @@ export async function bulkUpdateEntries(
   const update = db
     .prepare(
       `UPDATE library_entries SET ${parts.map(([sql]) => sql).join(", ")}
-       WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`,
+       WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))${gameOnly(patch) ? " AND media_type = 'game'" : ""}`,
     )
     .bind(...parts.flatMap(([, params]) => params), CURRENT_USER_ID, ids);
   const statements = [update];

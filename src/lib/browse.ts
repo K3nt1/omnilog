@@ -31,6 +31,7 @@ interface CardRow {
   release_date: string | null;
   poster_url: string | null;
   status: LibraryStatus;
+  mastered: number;
   is_focus: number;
   is_favorite: number;
   rating: number | null;
@@ -55,7 +56,7 @@ interface CardRow {
 const CARD_COLUMNS = `
   l.id AS entry_id, m.id AS media_id, m.type, m.external_id, m.title, m.original_title, m.release_date,
   COALESCE(l.custom_poster_url, m.poster_url) AS poster_url,
-  l.status, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating,
+  l.list_status AS status, l.mastered, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating,
   l.current_season, l.current_episode, l.current_chapter, l.current_volume, l.pause_seconds, l.pause_page,
   m.total_episodes, m.total_chapters, m.runtime_minutes, m.is_ongoing,
   l.drawn_at, l.game_checkpoint, l.playtime_minutes, l.sessions_count, m.release_json,
@@ -78,6 +79,7 @@ function toCard(row: CardRow): LibraryCard {
     releaseDate: row.release_date,
     posterUrl: row.poster_url,
     status: row.status,
+    mastered: row.mastered === 1,
     isFocus: row.is_focus === 1,
     isFavorite: row.is_favorite === 1,
     rating: row.rating,
@@ -151,7 +153,7 @@ function buildWhere(q: LibraryQuery, skip?: FacetKey): Where {
     params.push(q.type);
   }
   if (q.status && skip !== "status") {
-    clauses.push("l.status = ?");
+    clauses.push("l.list_status = ?");
     params.push(q.status);
   }
   if (q.favorite) clauses.push("l.is_favorite = 1");
@@ -284,8 +286,8 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize =
   const [statusRows, typeRows, genreRows, yearRows, watchRows, tagRows, platformRows] = await db.batch<{ key: string; n: number }>([
     db
       .prepare(
-        `SELECT l.status AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE ${byStatus.sql} GROUP BY l.status`,
+        `SELECT l.list_status AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE ${byStatus.sql} GROUP BY l.list_status`,
       )
       .bind(...byStatus.params),
     db
@@ -378,9 +380,10 @@ export interface TypeOverview {
 }
 
 /** Ordre de chaque rangée : terminés par date de fin, watchlist par date d'ajout, le reste par activité. */
-const ROW_ORDER = `CASE l.status
+const ROW_ORDER = `CASE l.list_status
   WHEN 'completed' THEN COALESCE(l.completed_at, l.created_at)
   WHEN 'planned' THEN l.created_at
+  WHEN 'wishlist' THEN l.created_at
   ELSE ${LAST_ACTIVITY} END`;
 
 /** Tout ce qu'affiche la page d'un type, en une seule série de 4 requêtes. */
@@ -388,15 +391,15 @@ export async function getTypeOverview(db: D1Database, type: MediaType): Promise<
   const [counts, rows, favorites, activity] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT l.status AS key, COUNT(*) AS n, SUM(l.is_favorite) AS fav FROM library_entries l
-         WHERE l.user_id = ? AND l.media_type = ? GROUP BY l.status`,
+        `SELECT l.list_status AS key, COUNT(*) AS n, SUM(l.is_favorite) AS fav FROM library_entries l
+         WHERE l.user_id = ? AND l.media_type = ? GROUP BY l.list_status`,
       )
       .bind(CURRENT_USER_ID, type),
     db
       .prepare(
         `SELECT * FROM (
            SELECT ${CARD_COLUMNS},
-                  ROW_NUMBER() OVER (PARTITION BY l.status ORDER BY ${ROW_ORDER} DESC, l.id DESC) AS rn
+                  ROW_NUMBER() OVER (PARTITION BY l.list_status ORDER BY ${ROW_ORDER} DESC, l.id DESC) AS rn
            FROM library_entries l JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ? AND l.media_type = ?
          ) WHERE rn <= ?`,
@@ -502,7 +505,7 @@ export async function getFocusOverview(db: D1Database, type: MediaType | null = 
     db
       .prepare(
         `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l
-         WHERE l.user_id = ? AND l.status = 'planned' ${typeFilter} GROUP BY l.media_type`,
+         WHERE l.user_id = ? AND l.status = 'planned' AND l.substatus IS NULL ${typeFilter} GROUP BY l.media_type`,
       )
       .bind(CURRENT_USER_ID, ...typeParams),
   ]);

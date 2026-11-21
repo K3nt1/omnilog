@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { EntryPatch, LibraryEntry } from "@/lib/entry";
 import { dateLabel, STATUS_ORDER, statusLabel } from "@/lib/labels";
-import type { MediaType } from "@/lib/types";
+import { statusesFor, type MediaType } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { StarRating } from "./StarRating";
 
@@ -68,12 +68,24 @@ export function TrackingPanel({ entry, type }: { entry: LibraryEntry; type: Medi
           aria-label="Statut"
           className={field}
         >
-          {STATUS_ORDER.map((s) => (
+          {STATUS_ORDER.filter((s) => statusesFor(type).includes(s)).map((s) => (
             <option key={s} value={s}>
               {statusLabel(s, type, false, type === "comic" && !entry.followsSeries)}
             </option>
           ))}
         </select>
+        {type === "game" && (
+          <button
+            type="button"
+            onClick={() => save({ mastered: !state.mastered })}
+            aria-pressed={state.mastered}
+            aria-label={state.mastered ? "Masterisé (fini à 100 %) : retirer" : "Marquer comme masterisé (fini à 100 %)"}
+            title={state.mastered ? "Masterisé : fini à 100 %" : "Masterisé (fini à 100 %)"}
+            className={`${field} ${state.mastered ? "border-amber-400/70 bg-amber-400/15" : "opacity-50 grayscale hover:opacity-100"} hover:bg-white/10`}
+          >
+            🏆
+          </button>
+        )}
         <button
           type="button"
           onClick={() => save({ isFavorite: !state.isFavorite })}

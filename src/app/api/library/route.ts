@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { addToLibrary } from "@/lib/library";
 import { getDetails } from "@/lib/sources";
 import { SourceError } from "@/lib/sources/http";
-import { isLibraryStatus, isMediaType, SOURCE_FOR_TYPE } from "@/lib/types";
+import { GAME_ONLY_STATUSES, isLibraryStatus, isMediaType, SOURCE_FOR_TYPE } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   if (typeof externalId !== "string" || !/^\d{1,12}$/.test(externalId)) {
     return NextResponse.json({ error: "Identifiant externe invalide." }, { status: 400 });
   }
-  if (!isLibraryStatus(status)) {
+  if (!isLibraryStatus(status) || (type !== "game" && GAME_ONLY_STATUSES.includes(status))) {
     return NextResponse.json({ error: "Statut invalide." }, { status: 400 });
   }
 

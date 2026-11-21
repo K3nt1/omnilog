@@ -3,7 +3,7 @@ import type { LibraryPage } from "@/lib/browse";
 import { sortsFor, type LibraryQuery, type ViewPrefs } from "@/lib/browse-shared";
 import { STATUS_ORDER, statusLabel, TYPE_LABELS } from "@/lib/labels";
 import { hasFilters, libraryHref } from "@/lib/library-url";
-import { MEDIA_TYPES, type MediaType } from "@/lib/types";
+import { GAME_ONLY_STATUSES, MEDIA_TYPES, statusesFor, type MediaType } from "@/lib/types";
 import { LibraryControls } from "./LibraryControls";
 import { LibraryResults } from "./LibraryResults";
 import { Pagination } from "./Pagination";
@@ -81,7 +81,10 @@ export function LibraryBrowser({ basePath, query, data, fixedType, prefs }: Prop
         <Chip href={href({ status: null })} active={query.status === null}>
           Tous statuts <Count n={statusTotal} />
         </Chip>
-        {STATUS_ORDER.map((s) => (
+        {STATUS_ORDER.filter(
+          // « Joué » et « Envies » : seulement pour les jeux (ou, tous types confondus, s'il y en a).
+          (s) => statusesFor(query.type).includes(s) && (query.type !== null || !GAME_ONLY_STATUSES.includes(s) || data.statusCounts[s] > 0 || query.status === s),
+        ).map((s) => (
           <Chip key={s} href={href({ status: s })} active={query.status === s}>
             {statusLabel(s, query.type, true)} <Count n={data.statusCounts[s]} />
           </Chip>

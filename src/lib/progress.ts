@@ -646,7 +646,7 @@ export async function drawRandom(db: D1Database, type: MediaType): Promise<numbe
       .bind(CURRENT_USER_ID, type),
     db
       .prepare(
-        `SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND status = 'planned' AND drawn_at IS NULL
+        `SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND status = 'planned' AND substatus IS NULL AND drawn_at IS NULL
          ORDER BY random() LIMIT 1`,
       )
       .bind(CURRENT_USER_ID, type),

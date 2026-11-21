@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { LibraryCard } from "@/lib/browse-shared";
 import { STATUS_ORDER, statusLabel } from "@/lib/labels";
-import type { LibraryStatus } from "@/lib/types";
+import { statusesFor, type LibraryStatus } from "@/lib/types";
 import { StarRating } from "./fiche/StarRating";
 import { useAction } from "./useAction";
 
@@ -85,7 +85,7 @@ export function CardActions({ card, popover = false }: { card: LibraryCard; /** 
         aria-label="Statut"
         className="w-full rounded-md border border-white/15 bg-neutral-900 px-2 py-1 text-xs"
       >
-        {STATUS_ORDER.map((s) => (
+        {STATUS_ORDER.filter((s) => statusesFor(card.type).includes(s)).map((s) => (
           <option key={s} value={s}>
             {statusLabel(s, card.type, false, !card.followsSeries)}
           </option>

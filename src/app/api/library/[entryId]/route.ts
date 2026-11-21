@@ -41,6 +41,10 @@ function parsePatch(body: Record<string, unknown>): EntryPatch | string {
       patch[key] = v as string | null;
     }
   }
+  if ("mastered" in body) {
+    if (typeof body.mastered !== "boolean") return "Trophée invalide.";
+    patch.mastered = body.mastered;
+  }
   if ("followsSeries" in body) {
     if (typeof body.followsSeries !== "boolean") return "Suivi de la série invalide.";
     patch.followsSeries = body.followsSeries;

@@ -51,7 +51,8 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
   // « Cocher un tome entier » : un tome précis (par défaut le tome en cours).
   const [checkVolume, setCheckVolume] = useState(String(entry.currentVolume ?? 1));
 
-  const done = entry.status === "completed";
+  // Jeu « Joué » : fini sans être terminé, affiché comme une œuvre finie.
+  const done = entry.status === "completed" || entry.status === "played";
   const dateField = <DateInput value={date} onChange={setDate} />;
   // Date choisie, ou « sans date ».
   const dated = datedBody(date);
@@ -93,7 +94,7 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
                 ? `${statusLabel("completed", type, false, true)} · ${entry.issuesRead} numéro${entry.issuesRead > 1 ? "s" : ""}`
                 : "Aucun numéro lu"
               : done
-                ? statusLabel("completed", type)
+                ? statusLabel(entry.status, type)
                 : positionLine({ ...entry, type })}
           </span>
         </h2>
