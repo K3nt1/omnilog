@@ -24,7 +24,8 @@ export interface CronReport {
 export async function sendDueReminders(env: CloudflareEnv & PushEnv, at = new Date()): Promise<{ sent: number; devices: number }> {
   const { timezone } = await getSettings(env.DB);
   const now = localNow(timezone, at);
-  const due = (await listReminders(env.DB)).filter((r) => isDue(r, now, timezone));
+  // Un rappel déjà coché « Fait » ou « Passer » aujourd'hui (avant son heure) n'est pas envoyé.
+  const due = (await listReminders(env.DB, now.date)).filter((r) => r.todayStatus === null && isDue(r, now, timezone));
   if (due.length === 0) return { sent: 0, devices: 0 };
   for (const r of due) {
     const message =
