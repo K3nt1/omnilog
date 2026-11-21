@@ -1,8 +1,8 @@
 // Envoi des paquets d'import à /api/import depuis le navigateur, avec nouveaux essais.
-import type { ImportItemResult, ImportResponse, LetterboxdFilm, LocgSeries, MalImportItem } from "./types";
+import type { BackloggdGame, ImportItemResult, ImportResponse, LetterboxdFilm, LocgSeries, MalImportItem } from "./types";
 
-export type ImportSourceName = "mal" | "letterboxd" | "locg";
-type ImportItem = MalImportItem | LetterboxdFilm | LocgSeries;
+export type ImportSourceName = "mal" | "letterboxd" | "locg" | "backloggd";
+type ImportItem = MalImportItem | LetterboxdFilm | LocgSeries | BackloggdGame;
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -2,7 +2,7 @@
 import type { LibraryStatus } from "../types";
 
 /** Taille des paquets envoyés au serveur (limites des Workers gratuits : 50 appels sortants et 50 requêtes D1). */
-export const IMPORT_BATCH_SIZE = { mal: 8, letterboxd: 5, locg: 5 } as const;
+export const IMPORT_BATCH_SIZE = { mal: 8, letterboxd: 5, locg: 5, backloggd: 40 } as const;
 
 // ---------- MyAnimeList ----------
 
@@ -85,10 +85,32 @@ export interface ComicCandidate {
   posterUrl: string | null;
 }
 
+// ---------- Backloggd ----------
+
+/** Une session de jeu du journal Backloggd (un jour joué). */
+export interface BackloggdSession {
+  date: string; // AAAA-MM-JJ
+  minutes: number | null;
+}
+
+/** Un jeu de l'export Backloggd (script de la page d'import), déjà converti en statut Omnilog. */
+export interface BackloggdGame {
+  key: string; // "bkl:over-the-hill"
+  slug: string; // slug IGDB (Backloggd reprend ceux d'IGDB)
+  /** Identifiant Backloggd, essayé chez IGDB si le slug ne répond plus (vérifié par le titre). */
+  gameId: number | null;
+  title: string;
+  status: LibraryStatus;
+  rating: number | null; // 1 à 10 (demi-étoiles)
+  mastered: boolean;
+  sessions: BackloggdSession[];
+}
+
 export type ImportRequest =
   | { source: "mal"; items: MalImportItem[] }
   | { source: "letterboxd"; items: LetterboxdFilm[] }
-  | { source: "locg"; items: LocgSeries[] };
+  | { source: "locg"; items: LocgSeries[] }
+  | { source: "backloggd"; items: BackloggdGame[] };
 
 // ---------- Réponse ----------
 

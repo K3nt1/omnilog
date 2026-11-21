@@ -128,25 +128,14 @@ interface IgdbTimeToBeat {
 
 const toMinutes = (seconds: number | undefined) => (seconds && seconds > 0 ? Math.round(seconds / 60) : null);
 
-export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<MediaDetails> {
-  const [[game], times] = await Promise.all([
-    igdb<IgdbGame[]>(
-      env,
-      "games",
-      `fields name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, release_dates.date, release_dates.date_format, release_dates.category, genres.name, platforms.name, platforms.abbreviation; where id = ${Number(id)};`,
-    ),
-    // Facultatif : beaucoup de jeux n'ont pas encore de durée, et une erreur ici ne doit pas bloquer l'ajout.
-    igdb<IgdbTimeToBeat[]>(env, "game_time_to_beats", `fields hastily, normally, completely; where game_id = ${Number(id)};`)
-      .then((rows) => rows[0] ?? null)
-      .catch(() => null),
-  ]);
-  if (!game) throw new SourceError("IGDB", "IGDB : jeu introuvable", 404);
-  const timeToBeat = {
-    hastily: toMinutes(times?.hastily),
-    normally: toMinutes(times?.normally),
-    completely: toMinutes(times?.completely),
-  };
+/** Champs d'un jeu pour sa fiche (sans la durée de vie, qui vient d'un autre point d'accès). */
+const GAME_FIELDS =
+  "name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, release_dates.date, release_dates.date_format, release_dates.category, genres.name, platforms.name, platforms.abbreviation";
 
+type TimeToBeat = { hastily: number | null; normally: number | null; completely: number | null };
+
+/** Jeu IGDB → fiche Omnilog. */
+function gameDetails(game: IgdbGame, timeToBeat: TimeToBeat): MediaDetails {
   const background = game.artworks?.[0] ?? game.screenshots?.[0];
   return {
     type: "game",
@@ -174,6 +163,55 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
       releasePrecision: releasePrecision(game.release_dates, game.first_release_date),
     },
   };
+}
+
+export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<MediaDetails> {
+  const [[game], times] = await Promise.all([
+    igdb<IgdbGame[]>(env, "games", `fields ${GAME_FIELDS}; where id = ${Number(id)};`),
+    // Facultatif : beaucoup de jeux n'ont pas encore de durée, et une erreur ici ne doit pas bloquer l'ajout.
+    igdb<IgdbTimeToBeat[]>(env, "game_time_to_beats", `fields hastily, normally, completely; where game_id = ${Number(id)};`)
+      .then((rows) => rows[0] ?? null)
+      .catch(() => null),
+  ]);
+  if (!game) throw new SourceError("IGDB", "IGDB : jeu introuvable", 404);
+  return gameDetails(game, {
+    hastily: toMinutes(times?.hastily),
+    normally: toMinutes(times?.normally),
+    completely: toMinutes(times?.completely),
+  });
+}
+
+/** Un slug IGDB / Backloggd (« over-the-hill », « hades--1 ») : lettres, chiffres et tirets. */
+export const isGameSlug = (slug: string) => /^[a-z0-9][a-z0-9-]{0,150}$/.test(slug);
+
+/**
+ * Fiches de plusieurs jeux en une requête (import Backloggd : même slug qu'IGDB), par slug et, à défaut,
+ * par identifiant. Sans durée de vie (elle arrive au premier rafraîchissement de la fiche).
+ */
+export async function getIgdbGamesBySlugs(
+  env: IgdbCredentials,
+  slugs: string[],
+  ids: number[] = [],
+): Promise<{ bySlug: Map<string, MediaDetails>; byId: Map<string, MediaDetails> }> {
+  const valid = [...new Set(slugs.filter(isGameSlug))];
+  const numbers = [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const bySlug = new Map<string, MediaDetails>();
+  const byId = new Map<string, MediaDetails>();
+  if (valid.length === 0 && numbers.length === 0) return { bySlug, byId };
+  const where = [
+    valid.length > 0 ? `slug = (${valid.map((s) => `"${s}"`).join(",")})` : null,
+    numbers.length > 0 ? `id = (${numbers.join(",")})` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  const games = await igdb<IgdbGame[]>(env, "games", `fields ${GAME_FIELDS}; where ${where}; limit 500;`);
+  const none = { hastily: null, normally: null, completely: null };
+  for (const game of games) {
+    const details = gameDetails(game, none);
+    bySlug.set(game.slug, details);
+    byId.set(String(game.id), details);
+  }
+  return { bySlug, byId };
 }
 
 /** Appel brut à l'API IGDB (fiche média). */
