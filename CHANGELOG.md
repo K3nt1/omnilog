@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/K3nt1/omnilog/compare/v0.11.0...v0.12.0) (2026-11-21)
+
+
+### ✨ Nouveautés
+
+* **bilan:** bilan de l'année ([#105](https://github.com/K3nt1/omnilog/issues/105)) ([eb4f998](https://github.com/K3nt1/omnilog/commit/eb4f998c3ce50db7ae7fc0b487156e2a34051eb5))
+
 ## [0.11.0](https://github.com/K3nt1/omnilog/compare/v0.10.0...v0.11.0) (2026-11-21)
 
 
