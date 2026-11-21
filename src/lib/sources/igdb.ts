@@ -2,6 +2,7 @@
 // Authentification via Twitch : Client ID + Secret -> jeton d'accès (~60 jours).
 import { genreLabels } from "../genres";
 import { fetchJson, SourceError } from "./http";
+import type { ReleasePrecision } from "../release-shared";
 import { resultKey, yearOf, type MediaDetails, type SearchResult } from "../types";
 
 const IMG = "https://images.igdb.com/igdb/image/upload";
@@ -89,8 +90,28 @@ export async function searchIgdb(env: IgdbCredentials, query: string): Promise<S
   });
 }
 
+/** Date de sortie IGDB : son format dit sa précision (jour, mois, trimestre, année, à déterminer). */
+interface IgdbReleaseDate {
+  date?: number;
+  date_format?: number | { id: number };
+  category?: number;
+}
+
+/** Précision de la première sortie : 0 = jour, 1 = mois, 2 = année, 3 à 6 = trimestre, 7 = à déterminer. */
+export function releasePrecision(dates: IgdbReleaseDate[] | undefined, first: number | undefined): ReleasePrecision {
+  const match = dates?.find((d) => d.date === first) ?? (first === undefined ? dates?.[0] : undefined);
+  if (!match) return "day";
+  const format = typeof match.date_format === "object" ? match.date_format?.id : (match.date_format ?? match.category);
+  if (format === 1) return "month";
+  if (format === 2) return "year";
+  if (format !== undefined && format >= 3 && format <= 6) return "quarter";
+  if (format === 7) return "tbd";
+  return "day";
+}
+
 interface IgdbGame extends IgdbSearchGame {
   slug: string;
+  release_dates?: IgdbReleaseDate[];
   summary?: string;
   artworks?: IgdbImage[];
   screenshots?: IgdbImage[];
@@ -112,7 +133,7 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
     igdb<IgdbGame[]>(
       env,
       "games",
-      `fields name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, genres.name, platforms.name, platforms.abbreviation; where id = ${Number(id)};`,
+      `fields name, slug, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, release_dates.date, release_dates.date_format, release_dates.category, genres.name, platforms.name, platforms.abbreviation; where id = ${Number(id)};`,
     ),
     // Facultatif : beaucoup de jeux n'ont pas encore de durée, et une erreur ici ne doit pas bloquer l'ajout.
     igdb<IgdbTimeToBeat[]>(env, "game_time_to_beats", `fields hastily, normally, completely; where game_id = ${Number(id)};`)
@@ -149,6 +170,8 @@ export async function getIgdbDetails(env: IgdbCredentials, id: string): Promise<
       genres: game.genres?.map((g) => g.name) ?? [],
       platforms: game.platforms?.map((p) => p.abbreviation ?? p.name) ?? [],
       timeToBeat, // minutes
+      // Précision de la date de sortie (une date « 2027 » est rangée au 31 décembre par IGDB).
+      releasePrecision: releasePrecision(game.release_dates, game.first_release_date),
     },
   };
 }

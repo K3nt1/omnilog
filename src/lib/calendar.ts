@@ -6,13 +6,18 @@ import {
   dayOf,
   groupByDay,
   longestStreak,
+  vagueLabel,
   type CalendarAction,
   type CalendarActivity,
   type CalendarDay,
   type CalendarKind,
+  type VagueRelease,
   type YearStats,
 } from "./calendar-shared";
+import { ficheHref } from "./labels";
 import { CURRENT_USER_ID } from "./library";
+import { localNow } from "./local-time";
+import { parseRelease, type ReleasePrecision } from "./release-shared";
 import { MEDIA_TYPES, type MediaType } from "./types";
 
 /** Fenêtre UTC large d'un jour de chaque côté : les heures locales sont rangées ensuite dans le bon jour. */
@@ -52,12 +57,104 @@ interface LogRow {
 
 const WORK_COLUMNS = `l.media_type, m.external_id, m.title, COALESCE(l.custom_poster_url, m.poster_url) AS poster_url`;
 
-/** Activités du mois `month` (« 2026-11 ») rangées par jour local. */
+interface ReleaseRow {
+  entry_id: number;
+  media_type: MediaType;
+  external_id: string | null;
+  title: string;
+  poster_url: string | null;
+  release_json: string | null;
+  release_date: string | null;
+  precision: ReleasePrecision | null;
+}
+
+/**
+ * Sorties à venir du mois : prochain épisode des séries et animes, prochain numéro des comics suivis (vus dans la
+ * dernière vérification des sorties), date de sortie des films et jeux de ta watchlist ou de ton backlog.
+ * Rien de passé : seulement à partir d'aujourd'hui. Les dates approximatives (date de couverture d'un comic,
+ * jeu annoncé pour un mois, un trimestre ou une année) vont à part, dans le mois où la source les range.
+ */
+async function getReleases(
+  db: D1Database,
+  month: string,
+  next: string,
+  options: { timeZone: string; types: MediaType[]; today: string },
+): Promise<{ activities: CalendarActivity[]; vague: VagueRelease[] }> {
+  const activities: CalendarActivity[] = [];
+  const vague: VagueRelease[] = [];
+  if (next <= options.today) return { activities, vague };
+  const { from, to } = widen(`${month}-01`, next);
+  const types = typeFilter(options.types);
+  const [series, dated] = await db.batch<ReleaseRow>([
+    db
+      .prepare(
+        `SELECT l.id AS entry_id, ${WORK_COLUMNS}, m.release_json, NULL AS release_date, NULL AS precision
+         FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE l.user_id = ? AND l.media_type IN ('tv', 'anime', 'comic') AND l.status <> 'dropped' AND l.follows_series = 1
+           AND json_extract(m.release_json, '$.kind') = 'next'
+           AND json_extract(m.release_json, '$.at') >= ? AND json_extract(m.release_json, '$.at') < ? ${types.sql}`,
+      )
+      .bind(CURRENT_USER_ID, from, to, ...types.params),
+    db
+      .prepare(
+        `SELECT l.id AS entry_id, ${WORK_COLUMNS}, NULL AS release_json, m.release_date,
+                json_extract(m.extra_json, '$.releasePrecision') AS precision
+         FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE l.user_id = ? AND l.media_type IN ('movie', 'game') AND l.status = 'planned'
+           AND m.release_date >= ? AND m.release_date < ? ${types.sql}`,
+      )
+      .bind(CURRENT_USER_ID, `${month}-01`, next, ...types.params),
+  ]);
+  const base = (row: ReleaseRow) => ({ entryId: row.entry_id, type: row.media_type, title: row.title, posterUrl: row.poster_url });
+  const push = (row: ReleaseRow, day: string, label: string, time: string | null) => {
+    if (day < options.today || !day.startsWith(month)) return;
+    activities.push({
+      ...base(row),
+      externalId: row.external_id,
+      kind: "release",
+      day,
+      season: null,
+      episode: null,
+      chapter: null,
+      volume: null,
+      minutes: null,
+      note: null,
+      rating: null,
+      review: null,
+      again: false,
+      release: { label, time },
+    });
+  };
+  const pushVague = (row: ReleaseRow, label: string, date: string, precision: Exclude<ReleasePrecision, "day">) => {
+    if (date.startsWith(month)) vague.push({ ...base(row), href: ficheHref(row.media_type, row.external_id), label, when: vagueLabel(date, precision) });
+  };
+
+  for (const row of series.results) {
+    const release = parseRelease(row.release_json);
+    if (!release?.at) continue;
+    if (release.approx) pushVague(row, release.label, release.at.slice(0, 10), "month");
+    else push(row, dayOf(release.at, options.timeZone), release.label, release.precision === "time" ? localNow(options.timeZone, new Date(release.at)).time : null);
+  }
+  for (const row of dated.results) {
+    if (!row.release_date) continue;
+    if (row.precision && row.precision !== "day") pushVague(row, "", row.release_date, row.precision);
+    else push(row, row.release_date.slice(0, 10), "", null);
+  }
+  return { activities, vague };
+}
+
+export interface MonthData {
+  days: Map<string, CalendarDay>;
+  /** Sorties du mois sans jour précis. */
+  vague: VagueRelease[];
+}
+
+/** Activités du mois `month` (« 2026-11 ») rangées par jour local, et sorties à venir. */
 export async function getMonth(
   db: D1Database,
   month: string,
-  options: { timeZone: string; types: MediaType[]; action: CalendarAction },
-): Promise<Map<string, CalendarDay>> {
+  options: { timeZone: string; types: MediaType[]; action: CalendarAction; today?: string },
+): Promise<MonthData> {
   const first = `${month}-01`;
   const [y, m] = month.split("-").map(Number);
   const next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
@@ -66,7 +163,7 @@ export async function getMonth(
   const inMonth = (day: string) => day >= first && day < next;
   const statements: D1PreparedStatement[] = [];
 
-  if (options.action !== "ajouts") {
+  if (options.action === "tout" || options.action === "vus") {
     statements.push(
       db
         .prepare(
@@ -91,7 +188,7 @@ export async function getMonth(
         .bind(CURRENT_USER_ID, first, next, ...types.params),
     );
   }
-  if (options.action !== "vus") {
+  if (options.action === "tout" || options.action === "ajouts") {
     // Ajout fait par un import sans date d'origine : l'œuvre a été créée en même temps que son lien d'import.
     statements.push(
       db
@@ -109,7 +206,13 @@ export async function getMonth(
     );
   }
 
-  const results = statements.length > 0 ? await db.batch<LogRow>(statements) : [];
+  const today = options.today ?? localNow(options.timeZone).date;
+  const [results, releases] = await Promise.all([
+    statements.length > 0 ? db.batch<LogRow>(statements) : Promise.resolve([]),
+    options.action === "tout" || options.action === "sorties"
+      ? getReleases(db, month, next, { timeZone: options.timeZone, types: options.types, today })
+      : Promise.resolve({ activities: [], vague: [] }),
+  ]);
   const activities: CalendarActivity[] = [];
   const importedAdds = new Map<string, number>();
   for (const row of results.flatMap((r) => r.results)) {
@@ -139,7 +242,8 @@ export async function getMonth(
       again: row.kind !== "add" && row.again === 1,
     });
   }
-  return groupByDay(activities, importedAdds);
+  activities.push(...releases.activities);
+  return { days: groupByDay(activities, importedAdds), vague: releases.vague };
 }
 
 /** Vue Année : activités vu / lu / joué par jour (sans les ajouts), totaux par type, jours actifs, plus longue série. */

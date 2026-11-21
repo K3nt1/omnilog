@@ -1,5 +1,8 @@
 // Prochaines sorties : types et textes, utilisables côté serveur comme côté navigateur.
 
+/** Précision d'une date de sortie de jeu (IGDB) : une date « 2027 » est rangée au 31 décembre. */
+export type ReleasePrecision = "day" | "month" | "quarter" | "year" | "tbd";
+
 /**
  * Prochain épisode annoncé (séries, anime), dernier chapitre paru (mangas), prochain ou dernier numéro (comics).
  * `precision` : « day » = date seule (TMDB, MangaDex), « time » = heure exacte (AniList).
@@ -13,6 +16,8 @@ export interface ReleaseInfo {
   precision: "day" | "time";
   /** Dernière vérification auprès de la source (ISO). */
   checkedAt?: string;
+  /** Date approximative (comics : seulement la date de couverture, le mois de parution). */
+  approx?: boolean;
   /** Comics : dernier numéro paru (« #42 »), même quand le suivant est annoncé ; un changement = nouveauté. */
   lastLabel?: string;
 }

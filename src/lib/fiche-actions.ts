@@ -115,3 +115,34 @@ export async function sourceImages(env: CloudflareEnv, type: MediaType, external
     backdrops: [...(game?.artworks ?? []), ...(game?.screenshots ?? [])].slice(0, 30).map((a) => igdbImage(a.image_id, "t_1080p")!),
   };
 }
+
+/**
+ * Tâche programmée : relit chez leur source quelques films et jeux de la watchlist / du backlog qui ne sont pas
+ * encore sortis (ou sans date), pour que les dates de « Sorties » suivent les reports. Une fois par semaine chacun ;
+ * les jeux sans précision de date (ajoutés avant la v0.10) d'abord.
+ */
+export async function refreshUpcomingReleases(env: CloudflareEnv, limit = 2, now = Date.now()): Promise<number> {
+  const today = new Date(now).toISOString().slice(0, 10);
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT m.type, m.external_id, m.fetched_at,
+            (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL) AS missing
+     FROM library_entries l JOIN media m ON m.id = l.media_id
+     WHERE l.user_id = ? AND l.status = 'planned' AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL
+       AND (m.release_date IS NULL OR m.release_date >= ?)
+       AND (m.fetched_at IS NULL OR m.fetched_at < ? OR (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL))
+     ORDER BY missing DESC, m.fetched_at
+     LIMIT ?`,
+  )
+    .bind(CURRENT_USER_ID, today, new Date(now - 7 * 86400_000).toISOString(), limit)
+    .all<{ type: MediaType; external_id: string }>();
+  let done = 0;
+  for (const row of results) {
+    try {
+      await refreshMedia(env, row.type, row.external_id);
+      done++;
+    } catch (error) {
+      console.error("Date de sortie non rafraîchie", row.type, row.external_id, error);
+    }
+  }
+  return done;
+}

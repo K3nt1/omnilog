@@ -54,7 +54,7 @@ export async function aniListAiring(malId: string): Promise<{ ongoing: boolean; 
 
 const sameRelease = (a: ReleaseInfo | null, b: ReleaseInfo | null) =>
   (a === null && b === null) ||
-  (a !== null && b !== null && a.kind === b.kind && a.label === b.label && a.at === b.at && a.lastLabel === b.lastLabel);
+  (a !== null && b !== null && a.kind === b.kind && a.label === b.label && a.at === b.at && a.lastLabel === b.lastLabel && !a.approx === !b.approx);
 
 export interface ReleaseMedia {
   id: number;

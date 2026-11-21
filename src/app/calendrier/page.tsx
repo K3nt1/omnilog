@@ -21,6 +21,7 @@ const ACTIONS: [CalendarAction, string][] = [
   ["tout", "Tout"],
   ["vus", "Vu / lu / joué"],
   ["ajouts", "Ajouts"],
+  ["sorties", "Sorties"],
 ];
 
 /** Calendrier : vue Mois (par défaut) avec le détail d'un jour, et vue Année façon GitHub. */
@@ -41,7 +42,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     // Sans jour choisi : aujourd'hui s'il est dans le mois affiché.
     day: isDay(dayParam) && dayParam.startsWith(month) ? dayParam : !monthParam && !dayParam ? today : null,
     types: parseTypes(first(params.types)),
-    action: actionParam === "vus" || actionParam === "ajouts" ? actionParam : "tout",
+    action: actionParam === "vus" || actionParam === "ajouts" || actionParam === "sorties" ? actionParam : "tout",
   };
 
   const monthTitle = new Date(`${state.month}-15T12:00:00Z`).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -109,7 +110,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       </div>
 
       {state.view === "mois" ? (
-        <CalendarMonth state={state} days={await getMonth(env.DB, state.month, { timeZone: timezone, types: state.types, action: state.action })} today={today} />
+        <CalendarMonth state={state} {...await getMonth(env.DB, state.month, { timeZone: timezone, types: state.types, action: state.action, today })} today={today} />
       ) : (
         <CalendarYear state={state} stats={await getYear(env.DB, state.year, { timeZone: timezone, types: state.types })} today={today} />
       )}

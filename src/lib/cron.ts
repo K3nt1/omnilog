@@ -7,6 +7,7 @@
 import { localNow } from "./local-time";
 import { checkDueNews } from "./news";
 import { pushConfigured, queueMessage, wakeDevices, type PushEnv } from "./push";
+import { refreshUpcomingReleases } from "./fiche-actions";
 import { refreshDueReleases } from "./release";
 import { dailyQuestMessage, isDue, listReminders, reminderMessage } from "./reminders";
 import { getSettings } from "./settings";
@@ -18,6 +19,8 @@ export interface CronReport {
   refreshed: number;
   /** Œuvres vérifiées pour les nouveautés lentes (plateformes, saisons, suites, DLC). */
   checked: number;
+  /** Films et jeux à venir relus chez leur source (dates de sortie). */
+  upcoming: number;
 }
 
 /** Envoie les rappels dus maintenant ; renvoie le nombre de messages créés. */
@@ -46,10 +49,12 @@ export async function runScheduled(env: CloudflareEnv & PushEnv, at = new Date()
   const refreshed = at.getUTCMinutes() < 15 ? await refreshDueReleases(env) : 0;
   // Les autres exécutions (minutes 15, 30, 45) : nouveautés lentes, par petits lots.
   const checked = at.getUTCMinutes() >= 15 ? await checkDueNews(env, 8, at.getTime()) : 0;
+  // Dates de sortie des films et jeux attendus : une exécution par heure (minute 15), deux œuvres au plus.
+  const upcoming = at.getUTCMinutes() >= 15 && at.getUTCMinutes() < 30 ? await refreshUpcomingReleases(env, 2, at.getTime()) : 0;
   // Ménage : les messages de plus de 30 jours.
   if (at.getUTCHours() === 3 && at.getUTCMinutes() < 15) {
     await env.DB.prepare("DELETE FROM push_messages WHERE created_at < ?").bind(new Date(at.getTime() - 30 * 86400_000).toISOString()).run();
     await pruneSourceCache(env.DB, 7, at.getTime());
   }
-  return { sent, devices, refreshed, checked };
+  return { sent, devices, refreshed, checked, upcoming };
 }

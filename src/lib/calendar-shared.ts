@@ -1,10 +1,11 @@
 // Calendrier : jours, regroupement des activités par œuvre et libellés (sans accès à la base, testable).
 import { durationLabel, ficheHref, issueLabel } from "./labels";
 import { localNow } from "./local-time";
+import type { ReleasePrecision } from "./release-shared";
 import { MEDIA_TYPES, type MediaType } from "./types";
 
-export type CalendarKind = "movie" | "episode" | "chapter" | "volume" | "session" | "complete" | "add";
-export type CalendarAction = "tout" | "vus" | "ajouts";
+export type CalendarKind = "movie" | "episode" | "chapter" | "volume" | "session" | "complete" | "add" | "release";
+export type CalendarAction = "tout" | "vus" | "ajouts" | "sorties";
 
 /** Une activité du journal (ou un ajout, ou une date de fin saisie sur la fiche). */
 export interface CalendarActivity {
@@ -26,6 +27,8 @@ export interface CalendarActivity {
   review: string | null;
   /** Déjà vu / lu / joué avant : « revu », « relu », « rejoué ». */
   again: boolean;
+  /** Sortie à venir : ce qui sort (« S02E05 », « #42 », vide pour un film ou un jeu) et l'heure locale si elle est connue. */
+  release?: { label: string; time: string | null };
 }
 
 /** Ce qu'un jour affiche pour une œuvre : une ou plusieurs lignes (« Vu : S1 É7 et É8 »). */
@@ -40,6 +43,32 @@ export interface CalendarWork {
   review: string | null;
   /** Nombre d'activités (épisodes, numéros…) de l'œuvre ce jour-là. */
   count: number;
+  /** Seulement une sortie à venir (affiche grisée, « à venir »). */
+  upcoming: boolean;
+}
+
+/** Sortie du mois sans jour précis : date de couverture d'un comic, jeu annoncé pour un mois, un trimestre ou une année. */
+export interface VagueRelease {
+  entryId: number;
+  type: MediaType;
+  title: string;
+  posterUrl: string | null;
+  href: string;
+  /** « #42 », vide pour un jeu. */
+  label: string;
+  /** « novembre 2026 », « 4e trimestre 2026 », « 2027 ». */
+  when: string;
+}
+
+/** Libellé d'une date approximative (AAAA-MM-JJ, telle que rangée par la source). */
+export function vagueLabel(date: string, precision: Exclude<ReleasePrecision, "day">): string {
+  const [y, m] = date.split("-").map(Number);
+  if (precision === "year" || precision === "tbd") return String(y);
+  if (precision === "quarter") {
+    const q = Math.floor((m - 1) / 3) + 1;
+    return `${q === 1 ? "1er" : `${q}e`} trimestre ${y}`;
+  }
+  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 export interface CalendarDay {
@@ -117,6 +146,10 @@ export function workLines(type: MediaType, activities: CalendarActivity[]): stri
     );
   }
   if (activities.some((a) => a.kind === "add")) lines.push("Ajouté à ta bibliothèque");
+  for (const a of activities.filter((x) => x.kind === "release" && x.release)) {
+    const what = a.release!.label ? `À venir : ${a.release!.label}` : "Sortie";
+    lines.push(a.release!.time ? `${what} à ${a.release!.time.replace(":", " h ")}` : what);
+  }
   return lines;
 }
 
@@ -141,7 +174,7 @@ export function groupByDay(activities: CalendarActivity[], importedAdds: Map<str
   for (const [key, acts] of byDayEntry) {
     const day = dayOfMap(key.split("|")[0]);
     const first = acts[0];
-    const counted = acts.filter((a) => a.kind !== "add").length;
+    const counted = acts.filter((a) => a.kind !== "add" && a.kind !== "release").length;
     day.activityCount += counted;
     const rated = [...acts].reverse().find((a) => a.rating !== null);
     const reviewed = acts.find((a) => a.review);
@@ -155,6 +188,7 @@ export function groupByDay(activities: CalendarActivity[], importedAdds: Map<str
       rating: rated?.rating ?? null,
       review: reviewed?.review ?? null,
       count: counted,
+      upcoming: acts.every((a) => a.kind === "release"),
     });
   }
   for (const [day, n] of importedAdds) dayOfMap(day).importedAdds = n;
