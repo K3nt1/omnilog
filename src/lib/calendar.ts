@@ -182,6 +182,7 @@ export async function getMonth(
            FROM library_entries l JOIN media m ON m.id = l.media_id
            WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
              AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
+           AND l.substatus IS NOT 'played'
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
                              AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
         )
@@ -264,6 +265,7 @@ export async function getYear(db: D1Database, year: number, options: { timeZone:
         `SELECT l.completed_at AS at, l.media_type FROM library_entries l
          WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
            AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
+           AND l.substatus IS NOT 'played'
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
                            AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
       )

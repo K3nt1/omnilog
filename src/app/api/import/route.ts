@@ -1,9 +1,10 @@
-// POST /api/import  { "source": "letterboxd" | "mal" | "locg", "items": [...] }
+// POST /api/import  { "source": "letterboxd" | "mal" | "locg" | "backloggd", "items": [...] }
 // Reçoit un petit paquet d'œuvres (voir IMPORT_BATCH_SIZE) et renvoie le résultat de chacune.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
+import { importBackloggdBatch } from "@/lib/import/backloggd-server";
 import { importLetterboxdBatch, importLocgBatch, importMalBatch } from "@/lib/import/server";
-import { IMPORT_BATCH_SIZE, type ImportResponse, type LetterboxdFilm, type LocgSeries, type MalImportItem } from "@/lib/import/types";
+import { IMPORT_BATCH_SIZE, type BackloggdGame, type ImportResponse, type LetterboxdFilm, type LocgSeries, type MalImportItem } from "@/lib/import/types";
 import { isLibraryStatus } from "@/lib/types";
 
 const isString = (v: unknown): v is string => typeof v === "string";
@@ -80,6 +81,30 @@ function isLocgSeries(v: unknown): v is LocgSeries {
   );
 }
 
+function isBackloggdGame(v: unknown): v is BackloggdGame {
+  const g = v as BackloggdGame;
+  return (
+    !!g &&
+    isString(g.slug) &&
+    /^[a-z0-9][a-z0-9-]{0,150}$/.test(g.slug) &&
+    g.key === `bkl:${g.slug}` &&
+    (g.gameId === null || (Number.isSafeInteger(g.gameId) && g.gameId > 0)) &&
+    isString(g.title) &&
+    g.title.length <= 300 &&
+    isLibraryStatus(g.status) &&
+    (g.rating === null || (Number.isInteger(g.rating) && g.rating >= 1 && g.rating <= 10)) &&
+    typeof g.mastered === "boolean" &&
+    Array.isArray(g.sessions) &&
+    g.sessions.length <= 2000 &&
+    g.sessions.every(
+      (s) =>
+        isString(s.date) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(s.date) &&
+        (s.minutes === null || (Number.isInteger(s.minutes) && s.minutes > 0 && s.minutes <= 24 * 60)),
+    )
+  );
+}
+
 export async function POST(request: NextRequest) {
   let body: { source?: unknown; items?: unknown };
   try {
@@ -89,7 +114,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { source, items } = body ?? {};
-  if (source !== "mal" && source !== "letterboxd" && source !== "locg") {
+  if (source !== "mal" && source !== "letterboxd" && source !== "locg" && source !== "backloggd") {
     return NextResponse.json({ error: "Source inconnue." }, { status: 400 });
   }
   if (!Array.isArray(items) || items.length === 0 || items.length > IMPORT_BATCH_SIZE[source]) {
@@ -101,7 +126,10 @@ export async function POST(request: NextRequest) {
 
   const { env } = getCloudflareContext();
   let response: ImportResponse;
-  if (source === "locg") {
+  if (source === "backloggd") {
+    if (!items.every(isBackloggdGame)) return NextResponse.json({ error: "Jeu Backloggd invalide." }, { status: 400 });
+    response = { results: await importBackloggdBatch(env, items) };
+  } else if (source === "locg") {
     if (!items.every(isLocgSeries)) return NextResponse.json({ error: "Série League of Comic Geeks invalide." }, { status: 400 });
     response = { results: await importLocgBatch(env, items) };
   } else if (source === "mal") {

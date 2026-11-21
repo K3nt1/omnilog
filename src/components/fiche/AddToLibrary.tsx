@@ -42,6 +42,16 @@ export function AddToLibrary({ type, externalId }: { type: MediaType; externalId
         >
           {busy === "planned" ? "Ajout…" : `+ ${plannedLabel(type)}`}
         </button>
+        {type === "game" && (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => add("wishlist")}
+            className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+          >
+            {busy === "wishlist" ? "Ajout…" : "+ Envies"}
+          </button>
+        )}
         <button
           type="button"
           disabled={busy !== null}

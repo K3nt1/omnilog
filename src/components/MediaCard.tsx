@@ -94,6 +94,8 @@ export const STATUS_STYLE: Record<LibraryCard["status"], string> = {
   on_hold: "bg-amber-500/80",
   completed: "bg-neutral-700/90",
   dropped: "bg-rose-600/80",
+  played: "bg-teal-600/80",
+  wishlist: "bg-fuchsia-500/80",
 };
 
 /**
@@ -142,6 +144,7 @@ export function MediaCard({
               <div className="absolute left-1 top-1 flex gap-0.5 text-[10px]">
                 {card.isFocus && <span className="rounded bg-black/70 px-1" title="En ce moment">🎯</span>}
                 {card.isFavorite && <span className="rounded bg-black/70 px-1 text-rose-400" title="Favori">♥</span>}
+                {card.mastered && <span className="rounded bg-black/70 px-1" title="Masterisé (fini à 100 %)">🏆</span>}
               </div>
               <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/90 to-transparent p-1 pt-4 text-[10px]">
                 <span className={`h-2 w-2 shrink-0 rounded-full ring-1 ring-white/50 ${STATUS_STYLE[card.status]}`} title={statusLabel(card.status, card.type, false, !card.followsSeries)} />
@@ -159,6 +162,11 @@ export function MediaCard({
               {card.isFavorite && (
                 <span className="rounded bg-black/70 px-1.5 py-0.5 text-rose-400" title="Favori">
                   ♥
+                </span>
+              )}
+              {card.mastered && (
+                <span className="rounded bg-black/70 px-1.5 py-0.5" title="Masterisé (fini à 100 %)">
+                  🏆
                 </span>
               )}
               {card.release ? (

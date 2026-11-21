@@ -17,6 +17,7 @@ import {
 import { letterboxdAddedDate } from "@/lib/import/added-date";
 import { postBatch, postJson } from "@/lib/import/client";
 import { readZipTextFiles } from "@/lib/import/unzip";
+import { BackloggdImport } from "@/components/import/BackloggdImport";
 import { LocgImport } from "@/components/import/LocgImport";
 import type { SearchResponse } from "@/lib/types";
 
@@ -381,6 +382,9 @@ export default function ImportPage() {
 
       {/* ---------- League of Comic Geeks ---------- */}
       <LocgImport disabled={running} />
+
+      {/* ---------- Backloggd ---------- */}
+      <BackloggdImport disabled={running} />
 
       {/* ---------- Validation ---------- */}
       {toReview.length > 0 && (

@@ -1,7 +1,7 @@
 // Accès à la base D1 pour la bibliothèque.
 import type { LibraryStatus, MediaDetails, SearchResult } from "./types";
 import { mediaSearchText } from "./search-text";
-import { resultKey, type MediaSource, type MediaType } from "./types";
+import { GAME_ONLY_STATUSES, resultKey, storedStatus, type MediaSource, type MediaType } from "./types";
 
 /** Utilisateur unique pour l'instant (créé par la migration 0002). */
 export const CURRENT_USER_ID = 1;
@@ -18,7 +18,7 @@ export async function findLibraryStatuses(
   const placeholders = ids.map(() => "?").join(", ");
   const { results: rows } = await db
     .prepare(
-      `SELECT m.type, m.source, m.external_id, l.status
+      `SELECT m.type, m.source, m.external_id, l.list_status AS status
        FROM library_entries l
        JOIN media m ON m.id = l.media_id
        WHERE l.user_id = ? AND m.external_id IN (${placeholders})`,
@@ -44,20 +44,46 @@ export interface AddResult {
  * Renvoie l'identifiant interne de l'œuvre.
  */
 export async function upsertMedia(db: D1Database, details: MediaDetails): Promise<number> {
-  const media = await db
+  const media = await upsertMediaStatement(db, details).first<{ id: number }>();
+
+  if (!media) throw new Error("Impossible d'enregistrer l'œuvre dans le catalogue");
+
+  if (details.seasons.length > 0) {
+    const upsertSeason = db.prepare(
+      `INSERT INTO media_seasons (media_id, season_number, episode_count, name, air_date)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (media_id, season_number) DO UPDATE SET
+         episode_count = excluded.episode_count, name = excluded.name, air_date = excluded.air_date`,
+    );
+    await db.batch(
+      details.seasons.map((s) => upsertSeason.bind(media.id, s.seasonNumber, s.episodeCount, s.name, s.airDate)),
+    );
+  }
+  return media.id;
+}
+
+/**
+ * Requête d'enregistrement d'une œuvre (sans ses saisons), qui renvoie son identifiant : à exécuter seule ou dans
+ * un lot. `keepExisting` : une œuvre déjà au catalogue n'est pas modifiée (import en masse, fiche partielle).
+ */
+export function upsertMediaStatement(db: D1Database, details: MediaDetails, keepExisting = false): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO media (type, source, external_id, title, original_title, overview, poster_url, backdrop_url,
                           release_date, runtime_minutes, total_episodes, total_chapters, total_volumes,
                           is_ongoing, extra_json, fetched_at, search_text)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-       ON CONFLICT (type, source, external_id) DO UPDATE SET
-         title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
+       ON CONFLICT (type, source, external_id) DO UPDATE SET ${
+         keepExisting
+           ? "fetched_at = media.fetched_at"
+           : `title = excluded.title, original_title = excluded.original_title, overview = excluded.overview,
          poster_url = excluded.poster_url, backdrop_url = excluded.backdrop_url,
          release_date = excluded.release_date, runtime_minutes = excluded.runtime_minutes,
          total_episodes = excluded.total_episodes, total_chapters = excluded.total_chapters,
          total_volumes = excluded.total_volumes, is_ongoing = excluded.is_ongoing,
          extra_json = excluded.extra_json, fetched_at = excluded.fetched_at,
-         search_text = excluded.search_text
+         search_text = excluded.search_text`
+       }
        RETURNING id`,
     )
     .bind(
@@ -78,23 +104,7 @@ export async function upsertMedia(db: D1Database, details: MediaDetails): Promis
       JSON.stringify(details.extra),
       new Date().toISOString(),
       mediaSearchText(details.title, details.originalTitle),
-    )
-    .first<{ id: number }>();
-
-  if (!media) throw new Error("Impossible d'enregistrer l'œuvre dans le catalogue");
-
-  if (details.seasons.length > 0) {
-    const upsertSeason = db.prepare(
-      `INSERT INTO media_seasons (media_id, season_number, episode_count, name, air_date)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (media_id, season_number) DO UPDATE SET
-         episode_count = excluded.episode_count, name = excluded.name, air_date = excluded.air_date`,
     );
-    await db.batch(
-      details.seasons.map((s) => upsertSeason.bind(media.id, s.seasonNumber, s.episodeCount, s.name, s.airDate)),
-    );
-  }
-  return media.id;
 }
 
 /** Ajoute l'œuvre à ta bibliothèque si elle n'y est pas déjà (bouton « + À voir »). */
@@ -103,17 +113,19 @@ export async function addToLibrary(
   details: MediaDetails,
   status: LibraryStatus,
 ): Promise<AddResult> {
+  if (details.type !== "game" && GAME_ONLY_STATUSES.includes(status)) throw new Error("Statut réservé aux jeux.");
   const media = { id: await upsertMedia(db, details) };
+  const stored = storedStatus(status);
 
   const inserted = await db
     .prepare(
-      `INSERT INTO library_entries (user_id, media_id, media_type, status, follows_series)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO library_entries (user_id, media_id, media_type, status, substatus, follows_series)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, media_id) DO NOTHING
-       RETURNING id, status`,
+       RETURNING id, list_status AS status`,
     )
     // Un comic ajouté part en numéros isolés : « Je suis cette série » se règle sur la fiche.
-    .bind(CURRENT_USER_ID, media.id, details.type, status, details.type === "comic" ? 0 : 1)
+    .bind(CURRENT_USER_ID, media.id, details.type, stored.status, stored.substatus, details.type === "comic" ? 0 : 1)
     .first<{ id: number; status: LibraryStatus }>();
 
   if (inserted) {
@@ -123,7 +135,7 @@ export async function addToLibrary(
   }
 
   const existing = await db
-    .prepare("SELECT id, status FROM library_entries WHERE user_id = ? AND media_id = ?")
+    .prepare("SELECT id, list_status AS status FROM library_entries WHERE user_id = ? AND media_id = ?")
     .bind(CURRENT_USER_ID, media.id)
     .first<{ id: number; status: LibraryStatus }>();
   if (!existing) throw new Error("Entrée de bibliothèque introuvable après insertion");

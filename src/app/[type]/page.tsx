@@ -88,8 +88,9 @@ function Row({ title, count, cards, href }: { title: string; count: number; card
 }
 
 /** Ordre des rangées : en cours, terminés, favoris, en pause, abandonnés, puis la watchlist. */
-const ROWS_BEFORE_FAVORITES: LibraryStatus[] = ["in_progress", "completed"];
-const ROWS_AFTER_FAVORITES: LibraryStatus[] = ["on_hold", "dropped", "planned"];
+/** Jeux : « Joué » après les terminés, « Envies » à côté du backlog (rangées vides masquées pour les autres types). */
+const ROWS_BEFORE_FAVORITES: LibraryStatus[] = ["in_progress", "completed", "played"];
+const ROWS_AFTER_FAVORITES: LibraryStatus[] = ["on_hold", "dropped", "planned", "wishlist"];
 
 /** Page d'un type : activité récente et une rangée par statut, chacune menant à la grille filtrée. */
 export default async function TypePage({ params }: Props) {
