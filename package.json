@@ -15,7 +15,7 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "^1.20.16",
+    "@opennextjs/cloudflare": "^1.20.17",
     "next": "16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
@@ -32,6 +32,6 @@
     "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
-    "wrangler": "^4.160.1"
+    "wrangler": "^4.165.0"
   }
 }
