@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.1](https://github.com/K3nt1/omnilog/compare/v0.12.0...v0.12.1) (2026-11-23)
+
+
+### 🐛 Corrections
+
+* **mobile:** réglages qui débordaient et barre d'onglets cachée en bas de page ([#111](https://github.com/K3nt1/omnilog/issues/111)) ([80e25fe](https://github.com/K3nt1/omnilog/commit/80e25feb841a1c5734fd65e95e44440a13c377ca))
+
+
+### ⚡ Performances
+
+* **d1:** versions des données, caches et index pour diviser les lignes lues ([#110](https://github.com/K3nt1/omnilog/issues/110)) ([9a49700](https://github.com/K3nt1/omnilog/commit/9a49700152b45095f27c3f97f20621e77df75f3c))
+
 ## [0.12.0](https://github.com/K3nt1/omnilog/compare/v0.11.0...v0.12.0) (2026-11-21)
 
 
