@@ -123,18 +123,29 @@ export async function sourceImages(env: CloudflareEnv, type: MediaType, external
  */
 export async function refreshUpcomingReleases(env: CloudflareEnv, limit = 2, now = Date.now()): Promise<number> {
   const today = new Date(now).toISOString().slice(0, 10);
-  const { results } = await env.DB.prepare(
+  const stale = new Date(now - 7 * 86400_000).toISOString();
+  const due = `(m.fetched_at IS NULL OR m.fetched_at < ? OR (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL))`;
+  // Œuvres datées dans le futur : index partiel idx_media_release_date (seules les sorties à venir sont lues).
+  const dated = env.DB.prepare(
     `SELECT DISTINCT m.type, m.external_id, m.fetched_at,
             (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL) AS missing
-     FROM library_entries l JOIN media m ON m.id = l.media_id
-     WHERE l.user_id = ? AND l.status = 'planned' AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL
-       AND (m.release_date IS NULL OR m.release_date >= ?)
-       AND (m.fetched_at IS NULL OR m.fetched_at < ? OR (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL))
+     FROM media m INDEXED BY idx_media_release_date JOIN library_entries l ON l.media_id = m.id
+     WHERE m.release_date >= ? AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL AND ${due}
+       AND +l.user_id = ? AND l.status = 'planned'
      ORDER BY missing DESC, m.fetched_at
      LIMIT ?`,
-  )
-    .bind(CURRENT_USER_ID, today, new Date(now - 7 * 86400_000).toISOString(), limit)
-    .all<{ type: MediaType; external_id: string }>();
+  ).bind(today, stale, CURRENT_USER_ID, limit);
+  // Sans date (à annoncer) : relire toute la watchlist / le backlog coûte cher, donc une fois par jour (4 h UTC).
+  const undated = env.DB.prepare(
+    `SELECT DISTINCT m.type, m.external_id, m.fetched_at, 0 AS missing
+     FROM library_entries l JOIN media m ON m.id = l.media_id
+     WHERE l.user_id = ? AND l.status = 'planned' AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL
+       AND m.release_date IS NULL AND (m.fetched_at IS NULL OR m.fetched_at < ?)
+     ORDER BY m.fetched_at
+     LIMIT ?`,
+  ).bind(CURRENT_USER_ID, stale, limit);
+  const batches = await env.DB.batch<{ type: MediaType; external_id: string }>(new Date(now).getUTCHours() === 4 ? [dated, undated] : [dated]);
+  const results = batches.flatMap((b) => b.results).slice(0, limit);
   let done = 0;
   for (const row of results) {
     try {

@@ -40,7 +40,7 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="fr">
+		<html lang="fr" className="overflow-x-clip">
 			<head>
 				<link rel="icon" href="/favicon.svg" type="image/svg+xml"></link>
 				{/*
@@ -51,7 +51,7 @@ export default function RootLayout({
 				{/* Chrome peut proposer l'installation avant que React ne démarre : on garde l'invitation dès le début. */}
 				<script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_SCRIPT }} />
 			</head>
-			<body className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-neutral-950 pb-[calc(4rem+env(safe-area-inset-bottom))] text-white antialiased md:pb-0`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} min-h-screen overflow-x-clip bg-neutral-950 pb-[calc(4rem+env(safe-area-inset-bottom))] text-white antialiased md:pb-0`}>
 				<AppSetup />
 				<Nav version={APP_VERSION} />
 				{children}

@@ -11,7 +11,7 @@ import {
 import { ficheHref } from "./labels";
 import { CURRENT_USER_ID } from "./library";
 import { localNow } from "./local-time";
-import { cached } from "./source-cache";
+import { cachedVersioned, getVersions } from "./data-version";
 import { MEDIA_TYPES, type MediaType } from "./types";
 
 /** Décalage (minutes) du fuseau à un instant donné. */
@@ -108,7 +108,7 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
       .prepare(
         `WITH active AS (
            SELECT DISTINCT p.entry_id FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
-           WHERE l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ?
+           WHERE +l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ?
          ),
          ranked AS (
            SELECT p.id, p.entry_id, p.kind, p.logged_at, p.undated, p.duration_minutes,
@@ -132,7 +132,7 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
       .prepare(
         `SELECT l.id AS e, l.media_type AS t, 'complete' AS k, substr(l.completed_at, 1, 10) AS d, NULL AS mn, 0 AS a
          FROM library_entries l
-         WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ?
+         WHERE +l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ?
            AND NOT (l.media_type = 'comic' AND l.follows_series = 0) AND l.substatus IS NOT 'played'
            AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
                            AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
@@ -148,9 +148,9 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
       .prepare(
         `SELECT l.id, l.media_type, l.rating, l.list_status, m.title, COALESCE(l.custom_poster_url, m.poster_url) AS poster_url, m.external_id
          FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE l.user_id = ? AND l.id IN (SELECT value FROM json_each(?))`,
+         WHERE l.id IN (SELECT value FROM json_each(?)) AND +l.user_id = ?`,
       )
-      .bind(CURRENT_USER_ID, JSON.stringify(ids))
+      .bind(JSON.stringify(ids), CURRENT_USER_ID)
       .all<WorkRow>();
     for (const w of results) works.set(w.id, w);
   }
@@ -253,23 +253,16 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
   };
 }
 
-/** Empreinte du journal et de la bibliothèque : un ajout ou une activité nouvelle invalide le cache. */
-async function fingerprint(db: D1Database): Promise<string> {
-  const row = await db
-    .prepare("SELECT (SELECT MAX(id) FROM progress_log) AS p, (SELECT MAX(id) FROM library_entries) AS l")
-    .first<{ p: number | null; l: number | null }>();
-  return `${row?.p ?? 0}-${row?.l ?? 0}`;
-}
-
-/** Bilan de l'année, gardé 6 h (ou jusqu'à la prochaine activité). */
+/** Bilan de l'année, gardé jusqu'au prochain changement du journal ou de la bibliothèque. */
 export async function getBilan(db: D1Database, year: number, timeZone: string): Promise<BilanData> {
-  const key = `bilan:v1:${year}:${timeZone}:${await fingerprint(db)}`;
-  return cached(db, key, 6 * 3600_000, () => computeBilan(db, year, timeZone));
+  const v = await getVersions(db);
+  return cachedVersioned(db, `bilan:${year}:${timeZone}`, [v.journal, v.library], () => computeBilan(db, year, timeZone));
 }
 
-/** Années avec au moins une activité datée (sélecteur d'années), gardées 6 h. */
+/** Années avec au moins une activité datée (sélecteur d'années). */
 export async function bilanYears(db: D1Database): Promise<number[]> {
-  return cached(db, `bilan:annees:${await fingerprint(db)}`, 6 * 3600_000, async () => {
+  const v = await getVersions(db);
+  return cachedVersioned(db, "bilan:annees", [v.journal], async () => {
     const { results } = await db
       .prepare(
         `SELECT DISTINCT CAST(substr(p.logged_at, 1, 4) AS INTEGER) AS y FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
