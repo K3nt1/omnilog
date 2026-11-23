@@ -34,7 +34,8 @@ export function SortSettings({ defaultSorts }: { defaultSorts: DefaultSorts }) {
           return (
             <li key={page} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="font-medium">{page === "all" ? "Bibliothèque" : TYPE_LABELS[page]}</span>
-              <span className="flex gap-2">
+              {/* Sur téléphone, les deux menus prennent la ligne entière au lieu de dépasser de l'écran. */}
+              <span className="flex w-full min-w-0 gap-2 sm:w-auto">
                 <select
                   value={current.sort}
                   disabled={busy !== null}
@@ -43,7 +44,7 @@ export function SortSettings({ defaultSorts }: { defaultSorts: DefaultSorts }) {
                     change(page, { sort, direction: DEFAULT_DIRECTION[sort] });
                   }}
                   aria-label={`Tri par défaut : ${page === "all" ? "bibliothèque" : TYPE_LABELS[page]}`}
-                  className={field}
+                  className={`${field} min-w-0 flex-1 sm:flex-none`}
                 >
                   {sortsFor(type).map((s) => (
                     <option key={s} value={s}>
@@ -56,7 +57,7 @@ export function SortSettings({ defaultSorts }: { defaultSorts: DefaultSorts }) {
                   disabled={busy !== null}
                   onChange={(e) => change(page, { sort: current.sort, direction: e.target.value as SortChoice["direction"] })}
                   aria-label="Ordre"
-                  className={field}
+                  className={`${field} shrink-0`}
                 >
                   <option value="desc">↓ Décroissant</option>
                   <option value="asc">↑ Croissant</option>
