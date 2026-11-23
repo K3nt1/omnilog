@@ -14,6 +14,7 @@ import {
   type VagueRelease,
   type YearStats,
 } from "./calendar-shared";
+import { cachedVersioned, getVersions } from "./data-version";
 import { ficheHref } from "./labels";
 import { CURRENT_USER_ID } from "./library";
 import { localNow } from "./local-time";
@@ -88,22 +89,23 @@ async function getReleases(
   const [series, dated] = await db.batch<ReleaseRow>([
     db
       .prepare(
+        // Index partiel idx_media_next_release : seulement les sorties annoncées du mois.
         `SELECT l.id AS entry_id, ${WORK_COLUMNS}, m.release_json, NULL AS release_date, NULL AS precision
-         FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE l.user_id = ? AND l.media_type IN ('tv', 'anime', 'comic') AND l.status <> 'dropped' AND l.follows_series = 1
-           AND json_extract(m.release_json, '$.kind') = 'next'
-           AND json_extract(m.release_json, '$.at') >= ? AND json_extract(m.release_json, '$.at') < ? ${types.sql}`,
+         FROM media m INDEXED BY idx_media_next_release JOIN library_entries l ON l.media_id = m.id
+         WHERE json_extract(m.release_json, '$.kind') = 'next'
+           AND json_extract(m.release_json, '$.at') >= ? AND json_extract(m.release_json, '$.at') < ?
+           AND +l.user_id = ? AND l.media_type IN ('tv', 'anime', 'comic') AND l.status <> 'dropped' AND l.follows_series = 1 ${types.sql}`,
       )
-      .bind(CURRENT_USER_ID, from, to, ...types.params),
+      .bind(from, to, CURRENT_USER_ID, ...types.params),
     db
       .prepare(
         `SELECT l.id AS entry_id, ${WORK_COLUMNS}, NULL AS release_json, m.release_date,
                 json_extract(m.extra_json, '$.releasePrecision') AS precision
-         FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE l.user_id = ? AND l.media_type IN ('movie', 'game') AND l.status = 'planned'
-           AND m.release_date >= ? AND m.release_date < ? ${types.sql}`,
+         FROM media m INDEXED BY idx_media_release_date JOIN library_entries l ON l.media_id = m.id
+         WHERE m.release_date >= ? AND m.release_date < ?
+           AND +l.user_id = ? AND l.media_type IN ('movie', 'game') AND l.status = 'planned' ${types.sql}`,
       )
-      .bind(CURRENT_USER_ID, `${month}-01`, next, ...types.params),
+      .bind(`${month}-01`, next, CURRENT_USER_ID, ...types.params),
   ]);
   const base = (row: ReleaseRow) => ({ entryId: row.entry_id, type: row.media_type, title: row.title, posterUrl: row.poster_url });
   const push = (row: ReleaseRow, day: string, label: string, time: string | null) => {
@@ -170,7 +172,7 @@ export async function getMonth(
           `SELECT p.entry_id, p.kind, p.season, p.episode, p.chapter, p.volume, p.duration_minutes, p.note,
                   p.logged_at AS at, p.rating, p.review, ${AGAIN_SQL} AS again, ${WORK_COLUMNS}
            FROM progress_log p JOIN library_entries l ON l.id = p.entry_id JOIN media m ON m.id = l.media_id
-           WHERE l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ? ${types.sql}
+           WHERE +l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ? ${types.sql}
            ORDER BY p.logged_at, p.id`,
         )
         .bind(CURRENT_USER_ID, from, to, ...types.params),
@@ -180,7 +182,7 @@ export async function getMonth(
           `SELECT l.id AS entry_id, 'complete' AS kind, NULL AS season, NULL AS episode, NULL AS chapter, NULL AS volume,
                   NULL AS duration_minutes, NULL AS note, l.completed_at AS at, NULL AS rating, NULL AS review, 0 AS again, ${WORK_COLUMNS}
            FROM library_entries l JOIN media m ON m.id = l.media_id
-           WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
+           WHERE +l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
              AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
            AND l.substatus IS NOT 'played'
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')
@@ -200,7 +202,7 @@ export async function getMonth(
                           AND abs(julianday(il.created_at) - julianday(l.created_at)) < 0.002) AS again,
                   ${WORK_COLUMNS}
            FROM library_entries l JOIN media m ON m.id = l.media_id
-           WHERE l.user_id = ? AND l.created_at >= ? AND l.created_at < ? ${types.sql}
+           WHERE +l.user_id = ? AND l.created_at >= ? AND l.created_at < ? ${types.sql}
            ORDER BY l.created_at`,
         )
         .bind(CURRENT_USER_ID, from, to, ...types.params),
@@ -249,6 +251,12 @@ export async function getMonth(
 
 /** Vue Année : activités vu / lu / joué par jour (sans les ajouts), totaux par type, jours actifs, plus longue série. */
 export async function getYear(db: D1Database, year: number, options: { timeZone: string; types: MediaType[] }): Promise<YearStats> {
+  // Gardée jusqu'au prochain changement du journal ou de la bibliothèque (le compte des activités sans date relit tout).
+  const v = await getVersions(db);
+  return cachedVersioned(db, `annee:${year}:${options.timeZone}:${options.types.join(",")}`, [v.journal, v.library], () => computeYear(db, year, options));
+}
+
+async function computeYear(db: D1Database, year: number, options: { timeZone: string; types: MediaType[] }): Promise<YearStats> {
   const first = `${year}-01-01`;
   const next = `${year + 1}-01-01`;
   const { from, to } = widen(first, next);
@@ -257,13 +265,13 @@ export async function getYear(db: D1Database, year: number, options: { timeZone:
     db
       .prepare(
         `SELECT p.logged_at AS at, l.media_type FROM progress_log p JOIN library_entries l ON l.id = p.entry_id
-         WHERE l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ? ${types.sql}`,
+         WHERE +l.user_id = ? AND p.undated = 0 AND p.kind <> 'pause' AND p.logged_at >= ? AND p.logged_at < ? ${types.sql}`,
       )
       .bind(CURRENT_USER_ID, from, to, ...types.params),
     db
       .prepare(
         `SELECT l.completed_at AS at, l.media_type FROM library_entries l
-         WHERE l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
+         WHERE +l.user_id = ? AND l.completed_at >= ? AND l.completed_at < ? ${types.sql}
            AND NOT (l.media_type = 'comic' AND l.follows_series = 0)
            AND l.substatus IS NOT 'played'
              AND NOT EXISTS (SELECT 1 FROM progress_log p WHERE p.entry_id = l.id AND p.kind IN ('complete', 'movie')

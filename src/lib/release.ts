@@ -151,10 +151,10 @@ async function tmdbTvAiring(token: string, id: string): Promise<Pick<MediaFiche,
 export async function refreshDueReleases(env: CloudflareEnv, limit = 8): Promise<number> {
   const { results } = await env.DB.prepare(
     `SELECT m.id, m.type, m.external_id, m.title, m.original_title, m.external_links_json, m.release_json, m.news_state_json
-     FROM media m
+     FROM media m INDEXED BY idx_media_ongoing
      WHERE m.is_ongoing = 1 AND m.type IN ('tv', 'anime', 'manga', 'comic') AND m.external_id IS NOT NULL
        -- Comics en numéros isolés : pas de sorties à suivre.
-       AND EXISTS (SELECT 1 FROM library_entries l WHERE l.media_id = m.id AND l.status <> 'dropped' AND l.follows_series = 1)
+       AND EXISTS (SELECT 1 FROM library_entries l INDEXED BY idx_library_media WHERE l.media_id = m.id AND l.status <> 'dropped' AND l.follows_series = 1)
        AND (m.release_checked_at IS NULL OR m.release_checked_at < ?1
             -- Épisode annoncé désormais sorti : revérifié chaque heure jusqu'à ce que la source annonce le suivant.
             OR (json_extract(m.release_json, '$.kind') = 'next' AND json_extract(m.release_json, '$.at') <= ?2 AND m.release_checked_at < ?3))

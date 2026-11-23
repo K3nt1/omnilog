@@ -1,7 +1,8 @@
 // Fiche média côté base : l'œuvre (si elle est en base), ton suivi, ton journal ; et leurs modifications.
 import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
-import { CURRENT_USER_ID } from "./library";
+import { CURRENT_USER_ID, statusesByExternalId } from "./library";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
+import { cachedVersioned } from "./data-version";
 import { GAME_ONLY_STATUSES, SOURCE_FOR_TYPE, storedStatus, type LibraryStatus, type MediaType } from "./types";
 
 export interface StoredMedia {
@@ -158,10 +159,26 @@ const parseJson = <T,>(value: string | null, fallback: T): T => {
   }
 };
 
+/** Tags du journal, du plus utilisé au moins utilisé, gardés jusqu'au prochain changement de tag. */
+export function getKnownTags(db: D1Database, tagsVersion: number): Promise<string[]> {
+  return cachedVersioned(db, "tags", [tagsVersion], async () => {
+    const { results } = await db
+      .prepare(
+        `SELECT t.value AS tag, COUNT(*) AS n
+         FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
+         WHERE l.user_id = ? AND p.tags_json IS NOT NULL
+         GROUP BY t.value ORDER BY n DESC, t.value LIMIT 500`,
+      )
+      .bind(CURRENT_USER_ID)
+      .all<{ tag: string }>();
+    return results.map((r) => String(r.tag));
+  });
+}
+
 /** Tout ce que la base sait d'une œuvre, en un seul aller-retour (3 requêtes). */
 export async function getStoredFiche(db: D1Database, type: MediaType, externalId: string): Promise<StoredFiche> {
   const source = SOURCE_FOR_TYPE[type];
-  const [mediaRows, journalRows, userRows, tagRows] = await db.batch<Record<string, unknown>>([
+  const [mediaRows, journalRows, userRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
         `SELECT m.*, l.id AS entry_id, l.list_status AS status, l.mastered, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
@@ -185,16 +202,11 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
          ORDER BY p.logged_at DESC, p.id DESC LIMIT 200`,
       )
       .bind(CURRENT_USER_ID, type, source, externalId),
-    db.prepare("SELECT watch_region FROM users WHERE id = ?").bind(CURRENT_USER_ID),
-    db
-      .prepare(
-        `SELECT t.value AS tag, COUNT(*) AS n
-         FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
-         WHERE l.user_id = ? AND p.tags_json IS NOT NULL
-         GROUP BY t.value ORDER BY n DESC, t.value LIMIT 500`,
-      )
-      .bind(CURRENT_USER_ID),
+    db.prepare("SELECT watch_region, tags_version FROM users WHERE id = ?").bind(CURRENT_USER_ID),
   ]);
+  // Tags déjà utilisés (suggestions) : relus seulement quand un tag change (migration 0019).
+  const tagsVersion = Number((userRows.results[0] as { tags_version?: number } | undefined)?.tags_version ?? 0);
+  const knownTags = await getKnownTags(db, tagsVersion);
 
   const row = mediaRows.results[0] as unknown as MediaRow | undefined;
   const media: StoredMedia | null = row
@@ -266,7 +278,6 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
   }));
 
   const region = (userRows.results[0] as { watch_region?: string } | undefined)?.watch_region ?? "FR";
-  const knownTags = (tagRows.results as { tag: string }[]).map((r) => String(r.tag));
   return { media, entry, journal, watchRegion: region, knownTags };
 }
 
@@ -276,16 +287,11 @@ export async function getLibraryStatuses(
   works: { type: MediaType; externalId: string }[],
 ): Promise<Map<string, LibraryStatus>> {
   const statuses = new Map<string, LibraryStatus>();
-  const ids = [...new Set(works.map((w) => w.externalId))].slice(0, 90);
-  if (ids.length === 0) return statuses;
-  const { results } = await db
-    .prepare(
-      `SELECT m.type, m.external_id, l.list_status AS status FROM library_entries l JOIN media m ON m.id = l.media_id
-       WHERE l.user_id = ? AND m.external_id IN (${ids.map(() => "?").join(", ")})`,
-    )
-    .bind(CURRENT_USER_ID, ...ids)
-    .all<{ type: MediaType; external_id: string; status: LibraryStatus }>();
-  for (const r of results) statuses.set(`${r.type}:${r.external_id}`, r.status);
+  const rows = await statusesByExternalId(
+    db,
+    works.slice(0, 90).map((w) => ({ type: w.type, source: SOURCE_FOR_TYPE[w.type], externalId: w.externalId })),
+  );
+  for (const r of rows) statuses.set(`${r.type}:${r.external_id}`, r.status);
   return statuses;
 }
 

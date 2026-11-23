@@ -10,6 +10,7 @@ import { igdbQuery } from "./sources/igdb";
 import { malGet } from "./sources/mal";
 import { tmdbGet } from "./sources/tmdb";
 import { NEWS_BITS, type NewsItem, type NewsKind } from "./news-shared";
+import { NEWS_QUEUE_KEY, resetNewsQueue } from "./news-queue";
 import type { MediaType } from "./types";
 
 export { NEWS_BITS, NEWS_ICONS, NEWS_LABELS, type NewsItem, type NewsKind } from "./news-shared";
@@ -177,7 +178,7 @@ export async function getNewsKinds(db: D1Database): Promise<number> {
 
 export async function setNewsKinds(db: D1Database, mask: number): Promise<void> {
   // Nouveaux types suivis : vérification dès la prochaine exécution programmée.
-  await db.prepare("UPDATE users SET news_kinds = ?, news_next_check_at = NULL WHERE id = ?").bind(mask, CURRENT_USER_ID).run();
+  await db.batch([db.prepare("UPDATE users SET news_kinds = ? WHERE id = ?").bind(mask, CURRENT_USER_ID), resetNewsQueue(db)]);
 }
 
 // ---------- Vérifications lentes ----------
@@ -287,52 +288,97 @@ async function checkDlcs(env: CloudflareEnv, row: DueRow, state: NewsState): Pro
   return { statements, state: { ...state, dlcs: [...new Set([...state.dlcs, ...ids])] } };
 }
 
-/**
- * Vérifications lentes (tâche programmée) : au plus `limit` œuvres, celles dont la dernière vérification
- * est la plus ancienne. Les types de nouveautés coupés dans Réglages ne sont pas vérifiés.
- */
-/** Attente après une vérification qui n'a plus rien trouvé à faire. */
-const NEWS_IDLE_HOURS = 6;
+/** Attente avant de reconstruire la file d'attente des vérifications (sauf ajout d'œuvre ou réglage changé). */
+const QUEUE_REBUILD_HOURS = 24;
+/** DLC des jeux anciens (sortis il y a plus de 3 ans, pas en cours ni au backlog) : une fois par mois. */
+const OLD_GAME_DLC_DAYS = 30;
+const OLD_GAME_YEARS = 3;
 
+type QueueItem = [mediaId: number, dueMs: number];
+interface NewsQueue {
+  builtAt: number;
+  kinds: number;
+  items: QueueItem[];
+}
+
+/** Conditions SQL des œuvres à surveiller selon les types de nouveautés suivis. */
+function eligibility(kinds: number): string[] {
+  const wanted: string[] = [];
+  if (kinds & NEWS_BITS.provider) wanted.push("(m.type = 'movie' AND l.status = 'planned')");
+  if (kinds & NEWS_BITS.season) wanted.push("(m.type = 'tv' AND l.status <> 'dropped')");
+  if (kinds & NEWS_BITS.sequel) wanted.push("(m.type = 'anime' AND l.status IN ('completed', 'in_progress', 'on_hold'))");
+  if (kinds & NEWS_BITS.dlc) wanted.push("(m.type = 'game' AND l.status <> 'dropped')");
+  return wanted;
+}
+
+/** Délai avant la prochaine vérification d'une œuvre. */
+function recheckDays(row: { type: MediaType; status: string; release_date: string | null }, now: number): number {
+  if (row.type === "movie") return RECHECK_DAYS.provider;
+  if (row.type === "tv") return RECHECK_DAYS.season;
+  if (row.type === "anime") return RECHECK_DAYS.sequel;
+  const recent = !row.release_date || Date.parse(row.release_date) > now - OLD_GAME_YEARS * 365 * 86400_000;
+  return recent || row.status === "in_progress" || row.status === "planned" ? RECHECK_DAYS.dlc : OLD_GAME_DLC_DAYS;
+}
+
+/**
+ * File d'attente des vérifications lentes, gardée dans source_cache : la bibliothèque n'est relue qu'une fois
+ * par jour (ou après un ajout), au lieu de l'être à chaque exécution programmée.
+ */
+async function loadQueue(db: D1Database, kinds: number, now: number): Promise<NewsQueue> {
+  const row = await db.prepare("SELECT body FROM source_cache WHERE key = ?").bind(NEWS_QUEUE_KEY).first<{ body: string }>();
+  if (row) {
+    try {
+      const queue = JSON.parse(row.body) as NewsQueue;
+      if (queue.kinds === kinds && now - queue.builtAt < QUEUE_REBUILD_HOURS * 3600_000) return queue;
+    } catch {
+      // File illisible : reconstruite.
+    }
+  }
+  const wanted = eligibility(kinds);
+  const items: QueueItem[] = [];
+  if (wanted.length > 0) {
+    const { results } = await db
+      .prepare(
+        `SELECT DISTINCT m.id, m.type, m.news_checked_at, m.release_date, l.status
+         FROM library_entries l JOIN media m ON m.id = l.media_id
+         WHERE l.user_id = ? AND m.external_id IS NOT NULL AND (${wanted.join(" OR ")})`,
+      )
+      .bind(CURRENT_USER_ID)
+      .all<{ id: number; type: MediaType; news_checked_at: string | null; release_date: string | null; status: string }>();
+    for (const r of results) {
+      const checked = r.news_checked_at ? Date.parse(r.news_checked_at) : 0;
+      items.push([r.id, checked ? checked + recheckDays(r, now) * 86400_000 : 0]);
+    }
+  }
+  return { builtAt: now, kinds, items };
+}
+
+/**
+ * Vérifications lentes (tâche programmée) : au plus `limit` œuvres dues, les plus en retard d'abord.
+ * Les types de nouveautés coupés dans Réglages ne sont pas vérifiés.
+ */
 export async function checkDueNews(env: CloudflareEnv, limit = 8, now = Date.now()): Promise<number> {
   const [kinds, regionRow] = await Promise.all([
     getNewsKinds(env.DB),
-    env.DB.prepare("SELECT watch_region, news_next_check_at FROM users WHERE id = ?")
-      .bind(CURRENT_USER_ID)
-      .first<{ watch_region: string; news_next_check_at: string | null }>(),
+    env.DB.prepare("SELECT watch_region FROM users WHERE id = ?").bind(CURRENT_USER_ID).first<{ watch_region: string }>(),
   ]);
-  // Rien n'était à vérifier la dernière fois : on attend avant de relire toute la bibliothèque.
-  if (regionRow?.news_next_check_at && Date.parse(regionRow.news_next_check_at) > now) return 0;
   const region = regionRow?.watch_region ?? "FR";
-  const before = (days: number) => new Date(now - days * 86400_000).toISOString();
-  const wanted: string[] = [];
-  const params: unknown[] = [];
-  if (kinds & NEWS_BITS.provider) {
-    wanted.push("(m.type = 'movie' AND l.status = 'planned' AND (m.news_checked_at IS NULL OR m.news_checked_at < ?))");
-    params.push(before(RECHECK_DAYS.provider));
+  const queue = await loadQueue(env.DB, kinds, now);
+  const due = queue.items.filter(([, at]) => at <= now).sort((a, b) => a[1] - b[1]).slice(0, limit);
+  const wanted = eligibility(kinds);
+  let results: (DueRow & { status: string; release_date: string | null })[] = [];
+  if (due.length > 0 && wanted.length > 0) {
+    // Relues une à une par identifiant (l'œuvre a pu changer de statut depuis la construction de la file).
+    ({ results } = await env.DB.prepare(
+      `SELECT DISTINCT m.id, m.type, m.external_id, m.title, m.news_state_json, m.release_date, l.status
+       FROM media m JOIN library_entries l ON l.media_id = m.id
+       WHERE m.id IN (SELECT value FROM json_each(?)) AND +l.user_id = ? AND m.external_id IS NOT NULL AND (${wanted.join(" OR ")})`,
+    )
+      .bind(JSON.stringify(due.map(([id]) => id)), CURRENT_USER_ID)
+      .all<DueRow & { status: string; release_date: string | null }>());
   }
-  if (kinds & NEWS_BITS.season) {
-    wanted.push("(m.type = 'tv' AND l.status <> 'dropped' AND (m.news_checked_at IS NULL OR m.news_checked_at < ?))");
-    params.push(before(RECHECK_DAYS.season));
-  }
-  if (kinds & NEWS_BITS.sequel) {
-    wanted.push("(m.type = 'anime' AND l.status IN ('completed', 'in_progress', 'on_hold') AND (m.news_checked_at IS NULL OR m.news_checked_at < ?))");
-    params.push(before(RECHECK_DAYS.sequel));
-  }
-  if (kinds & NEWS_BITS.dlc) {
-    wanted.push("(m.type = 'game' AND l.status <> 'dropped' AND (m.news_checked_at IS NULL OR m.news_checked_at < ?))");
-    params.push(before(RECHECK_DAYS.dlc));
-  }
-  if (wanted.length === 0) return 0;
-  const { results } = await env.DB.prepare(
-    `SELECT m.id, m.type, m.external_id, m.title, m.news_state_json
-     FROM library_entries l JOIN media m ON m.id = l.media_id
-     WHERE l.user_id = ? AND m.external_id IS NOT NULL AND (${wanted.join(" OR ")})
-     ORDER BY m.news_checked_at IS NOT NULL, m.news_checked_at
-     LIMIT ?`,
-  )
-    .bind(CURRENT_USER_ID, ...params, limit)
-    .all<DueRow>();
+  const next = new Map<number, number>();
+  for (const [id] of due) next.set(id, -1); // plus surveillée : retirée de la file
   for (const row of results) {
     const state: NewsState = row.news_state_json ? (JSON.parse(row.news_state_json) as NewsState) : {};
     let result: { statements: D1PreparedStatement[]; state: NewsState } = { statements: [], state };
@@ -352,11 +398,20 @@ export async function checkDueNews(env: CloudflareEnv, limit = 8, now = Date.now
         row.id,
       ),
     ]);
+    next.set(row.id, now + recheckDays(row, now) * 86400_000);
   }
-  // Lot incomplet : tout ce qui était dû est vérifié. Les prochaines œuvres ne seront dues que dans plusieurs jours
-  // (ou à l'ajout de nouvelles œuvres) : prochaine lecture de la bibliothèque dans quelques heures.
-  await env.DB.prepare("UPDATE users SET news_next_check_at = ? WHERE id = ?")
-    .bind(results.length < limit ? new Date(now + NEWS_IDLE_HOURS * 3600_000).toISOString() : null, CURRENT_USER_ID)
-    .run();
+  // File mise à jour (une écriture) : prochaines échéances des œuvres vérifiées.
+  if (due.length > 0 || queue.builtAt === now) {
+    const items = queue.items.flatMap(([id, at]): QueueItem[] => {
+      const updated = next.get(id);
+      if (updated === undefined) return [[id, at]];
+      return updated < 0 ? [] : [[id, updated]];
+    });
+    await env.DB.prepare(
+      "INSERT INTO source_cache (key, body, fetched_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET body = excluded.body, fetched_at = excluded.fetched_at",
+    )
+      .bind(NEWS_QUEUE_KEY, JSON.stringify({ ...queue, items }), new Date(now).toISOString())
+      .run();
+  }
   return results.length;
 }

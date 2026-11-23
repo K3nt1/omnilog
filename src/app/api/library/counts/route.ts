@@ -2,14 +2,21 @@
 // Appelé seulement à l'ouverture du menu (une fois par page), pas à chaque affichage.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse } from "next/server";
+import { cachedVersioned, getVersions } from "@/lib/data-version";
 import { CURRENT_USER_ID } from "@/lib/library";
 import { MEDIA_TYPES, type MediaType } from "@/lib/types";
 
 export async function GET() {
   const { env } = getCloudflareContext();
-  const { results } = await env.DB.prepare("SELECT media_type, COUNT(*) AS n FROM library_entries WHERE user_id = ? GROUP BY media_type")
-    .bind(CURRENT_USER_ID)
-    .all<{ media_type: MediaType; n: number }>();
+  // Gardé jusqu'au prochain ajout ou retrait d'œuvre (une ligne lue au lieu de toute la bibliothèque).
+  const v = await getVersions(env.DB);
+  const results = await cachedVersioned(env.DB, "nav:compteurs", [v.catalog], async () =>
+    (
+      await env.DB.prepare("SELECT media_type, COUNT(*) AS n FROM library_entries WHERE user_id = ? GROUP BY media_type")
+        .bind(CURRENT_USER_ID)
+        .all<{ media_type: MediaType; n: number }>()
+    ).results,
+  );
   const counts = Object.fromEntries(MEDIA_TYPES.map((t) => [t, results.find((r) => r.media_type === t)?.n ?? 0])) as Record<MediaType, number>;
   return NextResponse.json(
     { counts, total: Object.values(counts).reduce((a, b) => a + b, 0) },

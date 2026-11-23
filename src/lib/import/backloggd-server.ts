@@ -134,10 +134,6 @@ export async function importBackloggdBatch(env: CloudflareEnv, items: BackloggdG
       for (const item of items) if (mediaIds.has(item.key)) results.set(item.key, { key: item.key, label: item.title, status: "error", message });
     }
   }
-  if (mediaIds.size > 0) {
-    // Nouvelles œuvres : les nouveautés lentes (DLC) les vérifieront dès la prochaine exécution programmée.
-    await db.prepare("UPDATE users SET news_next_check_at = NULL WHERE id = ?").bind(CURRENT_USER_ID).run();
-  }
   return items.map(
     (item) =>
       results.get(item.key) ?? { key: item.key, label: item.title, status: known.has(item.key) ? "updated" : "imported" },

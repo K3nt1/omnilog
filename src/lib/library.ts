@@ -7,25 +7,46 @@ import { GAME_ONLY_STATUSES, resultKey, storedStatus, type MediaSource, type Med
 export const CURRENT_USER_ID = 1;
 
 /** Renvoie, pour chaque résultat déjà dans ta bibliothèque, son statut. */
+/**
+ * Statut en bibliothèque d'œuvres repérées par (type, source, identifiant) : une requête par couple
+ * (type, source), qui passe par l'index unique de media puis celui de library_entries (quelques lignes lues,
+ * au lieu de toute la bibliothèque quand on cherchait par identifiant seul).
+ */
+export async function statusesByExternalId(
+  db: D1Database,
+  works: { type: MediaType; source: MediaSource; externalId: string }[],
+): Promise<{ type: MediaType; source: MediaSource; external_id: string; status: LibraryStatus }[]> {
+  const groups = new Map<string, { type: MediaType; source: MediaSource; ids: Set<string> }>();
+  for (const w of works) {
+    const key = `${w.type}:${w.source}`;
+    const group = groups.get(key) ?? { type: w.type, source: w.source, ids: new Set<string>() };
+    group.ids.add(w.externalId);
+    groups.set(key, group);
+  }
+  if (groups.size === 0) return [];
+  const results = await db.batch<{ type: MediaType; source: MediaSource; external_id: string; status: LibraryStatus }>(
+    [...groups.values()].map((g) =>
+      db
+        .prepare(
+          `SELECT m.type, m.source, m.external_id, l.list_status AS status
+           FROM media m JOIN library_entries l ON l.media_id = m.id
+           WHERE m.type = ? AND m.source = ? AND m.external_id IN (${[...g.ids].map(() => "?").join(", ")}) AND +l.user_id = ?`,
+        )
+        .bind(g.type, g.source, ...g.ids, CURRENT_USER_ID),
+    ),
+  );
+  return results.flatMap((r) => r.results);
+}
+
 export async function findLibraryStatuses(
   db: D1Database,
   results: SearchResult[],
 ): Promise<Map<string, LibraryStatus>> {
   const statuses = new Map<string, LibraryStatus>();
-  const ids = [...new Set(results.map((r) => r.externalId))];
-  if (ids.length === 0) return statuses;
-
-  const placeholders = ids.map(() => "?").join(", ");
-  const { results: rows } = await db
-    .prepare(
-      `SELECT m.type, m.source, m.external_id, l.list_status AS status
-       FROM library_entries l
-       JOIN media m ON m.id = l.media_id
-       WHERE l.user_id = ? AND m.external_id IN (${placeholders})`,
-    )
-    .bind(CURRENT_USER_ID, ...ids)
-    .all<{ type: MediaType; source: MediaSource; external_id: string; status: LibraryStatus }>();
-
+  const rows = await statusesByExternalId(
+    db,
+    results.map((r) => ({ type: r.type, source: r.source, externalId: r.externalId })),
+  );
   for (const row of rows) {
     statuses.set(resultKey(row.type, row.source, row.external_id), row.status);
   }
@@ -129,8 +150,7 @@ export async function addToLibrary(
     .first<{ id: number; status: LibraryStatus }>();
 
   if (inserted) {
-    // Nouvelle œuvre : les nouveautés lentes la vérifieront dès la prochaine exécution programmée.
-    await db.prepare("UPDATE users SET news_next_check_at = NULL WHERE id = ?").bind(CURRENT_USER_ID).run();
+    // Nouvelle œuvre : la file des nouveautés lentes la prendra à sa prochaine reconstruction (24 h au plus).
     return { entryId: inserted.id, mediaId: media.id, created: true, status: inserted.status };
   }
 
