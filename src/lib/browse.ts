@@ -1,5 +1,6 @@
 // Lecture de la bibliothèque : grille filtrée et paginée, compteurs, pages par type.
 // Uniquement des lectures : aucune écriture D1.
+import { cachedVersioned, getVersions, type DataVersions } from "./data-version";
 import { CURRENT_USER_ID } from "./library";
 import { groupGenres, rawGenresFor } from "./genres";
 import { normalizeSearch } from "./search-text";
@@ -234,82 +235,138 @@ export interface LibraryPage {
 const zeroCounts = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>;
 
+type FacetRow = { key: string; n: number };
+
+/** Filtres qui lisent media (genre, année, plateforme, recherche, en diffusion) : sans eux, pas de jointure. */
+const needsMedia = (q: LibraryQuery) => Boolean(q.genre || q.decade || q.ongoing || q.platform || normalizeSearch(q.search) || q.sort === "visionnages");
+/** Filtres qui lisent le journal (années de visionnage, tags, critiques, tri par visionnages). */
+const needsJournal = (q: LibraryQuery) => Boolean(q.watchYear || q.tag || q.withReview || q.sort === "visionnages");
+
+/**
+ * Compteurs par statut et par type avec tous les autres filtres appliqués (puces et pagination).
+ * Gardés jusqu'au prochain changement de la bibliothèque (ou du journal si un filtre en dépend) ; sans filtre
+ * sur media, ils ne lisent que l'index idx_library_user_type_status.
+ */
+async function getFilteredCounts(db: D1Database, q: LibraryQuery, v: DataVersions): Promise<{ statusRows: FacetRow[]; typeRows: FacetRow[] }> {
+  const filters = { ...q, page: 1, sort: q.sort === "visionnages" ? q.sort : "activite", direction: "desc" };
+  const key = `lib:compteurs:${JSON.stringify(filters)}`;
+  return cachedVersioned(db, key, [v.library, needsJournal(q) ? v.journal : 0], async () => {
+    const byStatus = buildWhere(q, "status");
+    const byType = buildWhere(q, "type");
+    // Sans filtre sur media : l'index (user_id, media_type, list_status) suffit, aucune ligne de table lue
+    // pour les filtres simples.
+    const from = needsMedia(q) ? "library_entries l JOIN media m ON m.id = l.media_id" : "library_entries l INDEXED BY idx_library_user_type_status";
+    const [statusRows, typeRows] = await db.batch<FacetRow>([
+      db.prepare(`SELECT l.list_status AS key, COUNT(*) AS n FROM ${from} WHERE ${byStatus.sql} GROUP BY l.list_status`).bind(...byStatus.params),
+      db.prepare(`SELECT l.media_type AS key, COUNT(*) AS n FROM ${from} WHERE ${byType.sql} GROUP BY l.media_type`).bind(...byType.params),
+    ]);
+    return { statusRows: statusRows.results, typeRows: typeRows.results };
+  });
+}
+
+/**
+ * Menus genre, année de sortie, plateforme, années de visionnage et tags : comptés sur tout le type, sans les
+ * autres filtres, et gardés jusqu'à l'ajout ou au retrait d'une œuvre (tags : jusqu'au prochain changement de tag ;
+ * années de visionnage : une fois par jour au plus).
+ */
+async function getTypeFacets(
+  db: D1Database,
+  type: MediaType | null,
+  v: DataVersions,
+): Promise<{ genreRows: FacetRow[]; yearRows: FacetRow[]; watchRows: FacetRow[]; tagRows: FacetRow[]; platformRows: FacetRow[] }> {
+  const base = type ? { sql: "l.user_id = ? AND l.media_type = ?", params: [CURRENT_USER_ID, type] } : { sql: "l.user_id = ?", params: [CURRENT_USER_ID] };
+  const t = type ?? "tout";
+  const catalog = cachedVersioned(db, `lib:catalogue:${t}`, [v.catalog], async () => {
+    const statements = [
+      db
+        .prepare(
+          `SELECT g.value AS key, COUNT(*) AS n
+           FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.genres') g
+           WHERE ${base.sql} GROUP BY g.value`,
+        )
+        .bind(...base.params),
+      db
+        .prepare(
+          `SELECT substr(m.release_date, 1, 4) AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
+           WHERE ${base.sql} AND m.release_date IS NOT NULL GROUP BY key`,
+        )
+        .bind(...base.params),
+    ];
+    if (type === "game") {
+      statements.push(
+        db
+          .prepare(
+            `SELECT pf.value AS key, COUNT(*) AS n
+             FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.platforms') pf
+             WHERE ${base.sql} GROUP BY pf.value ORDER BY n DESC`,
+          )
+          .bind(...base.params),
+      );
+    }
+    const [genreRows, yearRows, platformRows] = await db.batch<FacetRow>(statements);
+    return { genreRows: genreRows.results, yearRows: yearRows.results, platformRows: platformRows?.results ?? [] };
+  });
+  const watch = cachedVersioned(
+    db,
+    `lib:visionnages:${t}`,
+    [v.catalog, new Date().toISOString().slice(0, 10)],
+    async () =>
+      (
+        await db
+          .prepare(
+            // Couples (œuvre, année) sans doublon : le journal daté, plus les dates de fin saisies.
+            `SELECT w.y AS key, COUNT(*) AS n FROM (
+               SELECT p.entry_id, substr(p.logged_at, 1, 4) AS y FROM library_entries l JOIN progress_log p ON p.entry_id = l.id
+               WHERE ${base.sql} AND ${DATED_LOG}
+               UNION
+               SELECT l.id, substr(l.completed_at, 1, 4) FROM library_entries l WHERE ${base.sql} AND l.completed_at IS NOT NULL
+             ) w GROUP BY w.y`,
+          )
+          .bind(...base.params, ...base.params)
+          .all<FacetRow>()
+      ).results,
+    86400_000,
+  );
+  const tags = cachedVersioned(db, `lib:tags:${t}`, [v.catalog, v.tags], async () =>
+    (
+      await db
+        .prepare(
+          `SELECT t.value AS key, COUNT(DISTINCT p.entry_id) AS n
+           FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
+           WHERE ${base.sql} AND p.tags_json IS NOT NULL GROUP BY t.value ORDER BY n DESC LIMIT 100`,
+        )
+        .bind(...base.params)
+        .all<FacetRow>()
+    ).results,
+  );
+  const [c, watchRows, tagRows] = await Promise.all([catalog, watch, tags]);
+  return { ...c, watchRows, tagRows };
+}
+
 /**
  * Une page de la grille : un lot de compteurs (statut, type, genre, années, tags, plateformes), puis les affiches.
  * `pageSize` dépend de l'affichage (petites affiches = plus d'œuvres par page).
  */
 export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize = PAGE_SIZE): Promise<LibraryPage> {
-  const byStatus = buildWhere(q, "status");
-  const byType = buildWhere(q, "type");
-  const byGenre = buildWhere(q, "genre");
-  const byYear = buildWhere(q, "year");
-  const byWatchYear = buildWhere(q, "watchYear");
-  const byTag = buildWhere(q, "tag");
-  const byPlatform = buildWhere(q, "platform");
-  const facets = [
-    db
-      .prepare(
-        `SELECT substr(m.release_date, 1, 4) AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE ${byYear.sql} AND m.release_date IS NOT NULL GROUP BY key`,
-      )
-      .bind(...byYear.params),
-    db
-      .prepare(
-        `SELECT w.y AS key, COUNT(DISTINCT l.id) AS n
-         FROM library_entries l JOIN media m ON m.id = l.media_id
-         JOIN (SELECT p.entry_id, substr(p.logged_at, 1, 4) AS y FROM progress_log p WHERE ${DATED_LOG}
-               UNION SELECT id, substr(completed_at, 1, 4) FROM library_entries WHERE completed_at IS NOT NULL) w
-           ON w.entry_id = l.id
-         WHERE ${byWatchYear.sql} GROUP BY w.y`,
-      )
-      .bind(...byWatchYear.params),
-    db
-      .prepare(
-        `SELECT t.value AS key, COUNT(DISTINCT l.id) AS n
-         FROM library_entries l JOIN media m ON m.id = l.media_id
-         JOIN progress_log p ON p.entry_id = l.id, json_each(p.tags_json) t
-         WHERE ${byTag.sql} GROUP BY t.value ORDER BY n DESC LIMIT 100`,
-      )
-      .bind(...byTag.params),
-  ];
-  if (q.type === "game") {
-    facets.push(
-      db
-        .prepare(
-          `SELECT pf.value AS key, COUNT(*) AS n
-           FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.platforms') pf
-           WHERE ${byPlatform.sql} GROUP BY pf.value ORDER BY n DESC`,
-        )
-        .bind(...byPlatform.params),
-    );
-  }
-  const [statusRows, typeRows, genreRows, yearRows, watchRows, tagRows, platformRows] = await db.batch<{ key: string; n: number }>([
-    db
-      .prepare(
-        `SELECT l.list_status AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE ${byStatus.sql} GROUP BY l.list_status`,
-      )
-      .bind(...byStatus.params),
-    db
-      .prepare(
-        `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE ${byType.sql} GROUP BY l.media_type`,
-      )
-      .bind(...byType.params),
-    db
-      .prepare(
-        `SELECT g.value AS key, COUNT(*) AS n
-         FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.genres') g
-         WHERE ${byGenre.sql} GROUP BY g.value`,
-      )
-      .bind(...byGenre.params),
-    ...facets,
-  ]);
+  const versions = await getVersions(db);
+  // Page entière gardée jusqu'au prochain changement (une heure au plus, pour les sorties sur les vignettes).
+  return cachedVersioned(
+    db,
+    `lib:page:${pageSize}:${JSON.stringify(q)}`,
+    [versions.catalog, versions.library, versions.journal, versions.tags],
+    () => computeLibraryPage(db, q, pageSize, versions),
+    3600_000,
+  );
+}
 
+async function computeLibraryPage(db: D1Database, q: LibraryQuery, pageSize: number, versions: DataVersions): Promise<LibraryPage> {
+  const [counts, facets] = await Promise.all([getFilteredCounts(db, q, versions), getTypeFacets(db, q.type, versions)]);
+  const { statusRows, typeRows } = counts;
+  const { genreRows, yearRows, watchRows, tagRows, platformRows } = facets;
   const statusCounts = zeroCounts(LIBRARY_STATUSES);
-  for (const row of statusRows.results) statusCounts[row.key as LibraryStatus] = row.n;
+  for (const row of statusRows) statusCounts[row.key as LibraryStatus] = row.n;
   const typeCounts = zeroCounts(MEDIA_TYPES);
-  for (const row of typeRows.results) typeCounts[row.key as MediaType] = row.n;
+  for (const row of typeRows) typeCounts[row.key as MediaType] = row.n;
 
   const total = q.status
     ? statusCounts[q.status]
@@ -330,7 +387,7 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize =
     .bind(...where.params, pageSize, (page - 1) * pageSize)
     .all<CardRow>();
 
-  const genres = groupGenres(genreRows.results.map((r) => ({ genre: r.key, n: r.n })));
+  const genres = groupGenres(genreRows.map((r) => ({ genre: r.key, n: r.n })));
   const toFacets = (rows: { key: string; n: number }[] | undefined) =>
     (rows ?? []).filter((r) => r.key).map((r) => ({ value: String(r.key), count: r.n }));
   return {
@@ -341,10 +398,10 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize =
     statusCounts,
     typeCounts,
     genres,
-    releaseYears: toFacets(yearRows.results).sort((a, b) => b.value.localeCompare(a.value)),
-    watchYears: toFacets(watchRows.results).sort((a, b) => b.value.localeCompare(a.value)),
-    tags: toFacets(tagRows.results),
-    platforms: toFacets(platformRows?.results),
+    releaseYears: toFacets(yearRows).sort((a, b) => b.value.localeCompare(a.value)),
+    watchYears: toFacets(watchRows).sort((a, b) => b.value.localeCompare(a.value)),
+    tags: toFacets(tagRows),
+    platforms: toFacets(platformRows),
   };
 }
 
@@ -387,7 +444,16 @@ const ROW_ORDER = `CASE l.list_status
   ELSE ${LAST_ACTIVITY} END`;
 
 /** Tout ce qu'affiche la page d'un type, en une seule série de 4 requêtes. */
+/**
+ * Page d'un type, gardée jusqu'au prochain changement de la bibliothèque ou du journal, et une heure au plus
+ * (sorties affichées sur les vignettes).
+ */
 export async function getTypeOverview(db: D1Database, type: MediaType): Promise<TypeOverview> {
+  const v = await getVersions(db);
+  return cachedVersioned(db, `type:${type}`, [v.library, v.journal], () => computeTypeOverview(db, type), 3600_000);
+}
+
+async function computeTypeOverview(db: D1Database, type: MediaType): Promise<TypeOverview> {
   const [counts, rows, favorites, activity] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
@@ -491,7 +557,13 @@ export interface FocusOverview {
 }
 
 /** Focus actuels (d'un type, ou de tous) et taille des watchlists / backlogs : 2 requêtes. */
+/** Focus et compteurs du backlog, gardés jusqu'au prochain changement (une heure au plus, pour les sorties). */
 export async function getFocusOverview(db: D1Database, type: MediaType | null = null): Promise<FocusOverview> {
+  const v = await getVersions(db);
+  return cachedVersioned(db, `focus:${type ?? "tout"}`, [v.library, v.journal], () => computeFocusOverview(db, type), 3600_000);
+}
+
+async function computeFocusOverview(db: D1Database, type: MediaType | null): Promise<FocusOverview> {
   const typeFilter = type ? "AND l.media_type = ?" : "";
   const typeParams = type ? [type] : [];
   const [focusRows, plannedRows] = await db.batch<Record<string, unknown>>([
@@ -504,10 +576,12 @@ export async function getFocusOverview(db: D1Database, type: MediaType | null = 
       .bind(CURRENT_USER_ID, ...typeParams),
     db
       .prepare(
-        `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l
-         WHERE l.user_id = ? AND l.status = 'planned' AND l.substatus IS NULL ${typeFilter} GROUP BY l.media_type`,
+        // Index idx_library_user_type_status : seules les entrées du backlog sont lues, dans l'index.
+        `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l INDEXED BY idx_library_user_type_status
+         WHERE l.user_id = ? AND l.media_type IN (${(type ? [type] : MEDIA_TYPES).map(() => "?").join(", ")}) AND l.list_status = 'planned'
+         GROUP BY l.media_type`,
       )
-      .bind(CURRENT_USER_ID, ...typeParams),
+      .bind(CURRENT_USER_ID, ...(type ? [type] : MEDIA_TYPES)),
   ]);
   const cards: Partial<Record<MediaType, LibraryCard>> = {};
   for (const row of focusRows.results as unknown as CardRow[]) cards[row.type] = toCard(row);

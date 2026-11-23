@@ -18,8 +18,8 @@ async function statusesOf(db: D1Database, type: MediaType, ids: string[]): Promi
   if (ids.length === 0) return map;
   const { results } = await db
     .prepare(
-      `SELECT m.external_id, l.list_status AS status FROM library_entries l JOIN media m ON m.id = l.media_id
-       WHERE l.user_id = ? AND m.type = ? AND m.source = ? AND m.external_id IN (${ids.map(() => "?").join(", ")})`,
+      `SELECT m.external_id, l.list_status AS status FROM media m JOIN library_entries l ON l.media_id = m.id
+       WHERE +l.user_id = ? AND m.type = ? AND m.source = ? AND m.external_id IN (${ids.map(() => "?").join(", ")})`,
     )
     .bind(CURRENT_USER_ID, type, SOURCE_FOR_TYPE[type], ...ids.slice(0, 90))
     .all<{ external_id: string; status: LibraryStatus }>();
