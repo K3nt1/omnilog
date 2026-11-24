@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/K3nt1/omnilog/compare/v0.12.1...v0.12.2) (2026-11-24)
+
+
+### ⚡ Performances
+
+* **d1:** compteurs type × statut, menus calculés une fois pour tous les types, index des tags ([#115](https://github.com/K3nt1/omnilog/issues/115)) ([eacf3fd](https://github.com/K3nt1/omnilog/commit/eacf3fd749b06820dd85da13b09d49d2cb06a234))
+
 ## [0.12.1](https://github.com/K3nt1/omnilog/compare/v0.12.0...v0.12.1) (2026-11-23)
 
 
