@@ -248,20 +248,29 @@ const needsJournal = (q: LibraryQuery) => Boolean(q.watchYear || q.tag || q.with
  * sur media, ils ne lisent que l'index idx_library_user_type_status.
  */
 async function getFilteredCounts(db: D1Database, q: LibraryQuery, v: DataVersions): Promise<{ statusRows: FacetRow[]; typeRows: FacetRow[] }> {
-  const filters = { ...q, page: 1, sort: q.sort === "visionnages" ? q.sort : "activite", direction: "desc" };
-  const key = `lib:compteurs:${JSON.stringify(filters)}`;
-  return cachedVersioned(db, key, [v.library, needsJournal(q) ? v.journal : 0], async () => {
-    const byStatus = buildWhere(q, "status");
-    const byType = buildWhere(q, "type");
+  // Une seule requête « type × statut » avec les autres filtres : les compteurs de statut (filtre de type appliqué)
+  // et de type (filtre de statut appliqué) s'en déduisent exactement. Changer de statut ou de type réutilise le cache.
+  const others: LibraryQuery = { ...q, type: null, status: null, page: 1 };
+  const filters = { ...others, sort: q.sort === "visionnages" ? q.sort : "activite", direction: "desc" };
+  const matrix = await cachedVersioned(db, `lib:matrice:${JSON.stringify(filters)}`, [v.library, needsJournal(q) ? v.journal : 0], async () => {
+    const where = buildWhere(others);
     // Sans filtre sur media : l'index (user_id, media_type, list_status) suffit, aucune ligne de table lue
     // pour les filtres simples.
     const from = needsMedia(q) ? "library_entries l JOIN media m ON m.id = l.media_id" : "library_entries l INDEXED BY idx_library_user_type_status";
-    const [statusRows, typeRows] = await db.batch<FacetRow>([
-      db.prepare(`SELECT l.list_status AS key, COUNT(*) AS n FROM ${from} WHERE ${byStatus.sql} GROUP BY l.list_status`).bind(...byStatus.params),
-      db.prepare(`SELECT l.media_type AS key, COUNT(*) AS n FROM ${from} WHERE ${byType.sql} GROUP BY l.media_type`).bind(...byType.params),
-    ]);
-    return { statusRows: statusRows.results, typeRows: typeRows.results };
+    const { results } = await db
+      .prepare(`SELECT l.media_type AS type, l.list_status AS status, COUNT(*) AS n FROM ${from} WHERE ${where.sql} GROUP BY l.media_type, l.list_status`)
+      .bind(...where.params)
+      .all<{ type: MediaType; status: LibraryStatus; n: number }>();
+    return results;
   });
+  const byStatus = new Map<string, number>();
+  const byType = new Map<string, number>();
+  for (const cell of matrix) {
+    if (!q.type || cell.type === q.type) byStatus.set(cell.status, (byStatus.get(cell.status) ?? 0) + cell.n);
+    if (!q.status || cell.status === q.status) byType.set(cell.type, (byType.get(cell.type) ?? 0) + cell.n);
+  }
+  const rows = (m: Map<string, number>) => [...m.entries()].map(([key, n]) => ({ key, n }));
+  return { statusRows: rows(byStatus), typeRows: rows(byType) };
 }
 
 /**
@@ -274,73 +283,85 @@ async function getTypeFacets(
   type: MediaType | null,
   v: DataVersions,
 ): Promise<{ genreRows: FacetRow[]; yearRows: FacetRow[]; watchRows: FacetRow[]; tagRows: FacetRow[]; platformRows: FacetRow[] }> {
-  const base = type ? { sql: "l.user_id = ? AND l.media_type = ?", params: [CURRENT_USER_ID, type] } : { sql: "l.user_id = ?", params: [CURRENT_USER_ID] };
-  const t = type ?? "tout";
-  const catalog = cachedVersioned(db, `lib:catalogue:${t}`, [v.catalog], async () => {
-    const statements = [
+  // Calculés une fois pour tous les types (lignes par type), puis additionnés pour le type demandé :
+  // changer de page de type ne relit rien. Chaque œuvre n'a qu'un type, donc les sommes sont exactes.
+  type TypedRow = { type: MediaType; key: string; n: number };
+  const base = "l.user_id = ?";
+  const catalog = cachedVersioned(db, "lib:catalogue", [v.catalog], async () => {
+    const [genreRows, yearRows, platformRows] = await db.batch<TypedRow>([
       db
         .prepare(
-          `SELECT g.value AS key, COUNT(*) AS n
+          `SELECT l.media_type AS type, g.value AS key, COUNT(*) AS n
            FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.genres') g
-           WHERE ${base.sql} GROUP BY g.value`,
+           WHERE ${base} GROUP BY l.media_type, g.value`,
         )
-        .bind(...base.params),
+        .bind(CURRENT_USER_ID),
       db
         .prepare(
-          `SELECT substr(m.release_date, 1, 4) AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
-           WHERE ${base.sql} AND m.release_date IS NOT NULL GROUP BY key`,
+          `SELECT l.media_type AS type, substr(m.release_date, 1, 4) AS key, COUNT(*) AS n FROM library_entries l JOIN media m ON m.id = l.media_id
+           WHERE ${base} AND m.release_date IS NOT NULL GROUP BY l.media_type, key`,
         )
-        .bind(...base.params),
-    ];
-    if (type === "game") {
-      statements.push(
-        db
-          .prepare(
-            `SELECT pf.value AS key, COUNT(*) AS n
-             FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.platforms') pf
-             WHERE ${base.sql} GROUP BY pf.value ORDER BY n DESC`,
-          )
-          .bind(...base.params),
-      );
-    }
-    const [genreRows, yearRows, platformRows] = await db.batch<FacetRow>(statements);
-    return { genreRows: genreRows.results, yearRows: yearRows.results, platformRows: platformRows?.results ?? [] };
+        .bind(CURRENT_USER_ID),
+      db
+        .prepare(
+          `SELECT l.media_type AS type, pf.value AS key, COUNT(*) AS n
+           FROM library_entries l JOIN media m ON m.id = l.media_id, json_each(m.extra_json, '$.platforms') pf
+           WHERE ${base} AND l.media_type = 'game' GROUP BY pf.value`,
+        )
+        .bind(CURRENT_USER_ID),
+    ]);
+    return { genreRows: genreRows.results, yearRows: yearRows.results, platformRows: platformRows.results };
   });
   const watch = cachedVersioned(
     db,
-    `lib:visionnages:${t}`,
+    "lib:visionnages",
     [v.catalog, new Date().toISOString().slice(0, 10)],
     async () =>
       (
         await db
           .prepare(
             // Couples (œuvre, année) sans doublon : le journal daté, plus les dates de fin saisies.
-            `SELECT w.y AS key, COUNT(*) AS n FROM (
-               SELECT p.entry_id, substr(p.logged_at, 1, 4) AS y FROM library_entries l JOIN progress_log p ON p.entry_id = l.id
-               WHERE ${base.sql} AND ${DATED_LOG}
+            `SELECT l.media_type AS type, w.y AS key, COUNT(*) AS n FROM (
+               SELECT p.entry_id, substr(p.logged_at, 1, 4) AS y FROM progress_log p WHERE ${DATED_LOG}
                UNION
-               SELECT l.id, substr(l.completed_at, 1, 4) FROM library_entries l WHERE ${base.sql} AND l.completed_at IS NOT NULL
-             ) w GROUP BY w.y`,
+               SELECT l.id, substr(l.completed_at, 1, 4) FROM library_entries l WHERE ${base} AND l.completed_at IS NOT NULL
+             ) w JOIN library_entries l ON l.id = w.entry_id
+             WHERE ${base} GROUP BY l.media_type, w.y`,
           )
-          .bind(...base.params, ...base.params)
-          .all<FacetRow>()
+          .bind(CURRENT_USER_ID, CURRENT_USER_ID)
+          .all<TypedRow>()
       ).results,
     86400_000,
   );
-  const tags = cachedVersioned(db, `lib:tags:${t}`, [v.catalog, v.tags], async () =>
+  const tags = cachedVersioned(db, "lib:tags", [v.catalog, v.tags], async () =>
     (
       await db
         .prepare(
-          `SELECT t.value AS key, COUNT(DISTINCT p.entry_id) AS n
-           FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
-           WHERE ${base.sql} AND p.tags_json IS NOT NULL GROUP BY t.value ORDER BY n DESC LIMIT 100`,
+          // Index partiel idx_progress_tags : seules les lignes du journal qui ont un tag sont lues.
+          `SELECT l.media_type AS type, t.value AS key, COUNT(DISTINCT p.entry_id) AS n
+           FROM progress_log p INDEXED BY idx_progress_tags JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
+           WHERE p.tags_json IS NOT NULL AND +l.user_id = ? GROUP BY l.media_type, t.value`,
         )
-        .bind(...base.params)
-        .all<FacetRow>()
+        .bind(CURRENT_USER_ID)
+        .all<TypedRow>()
     ).results,
   );
   const [c, watchRows, tagRows] = await Promise.all([catalog, watch, tags]);
-  return { ...c, watchRows, tagRows };
+  /** Lignes du type demandé (ou sommes sur tous les types). */
+  const pick = (rows: TypedRow[]): FacetRow[] => {
+    const sums = new Map<string, number>();
+    for (const r of rows) if (!type || r.type === type) sums.set(r.key, (sums.get(r.key) ?? 0) + r.n);
+    return [...sums.entries()].map(([key, n]) => ({ key, n }));
+  };
+  return {
+    genreRows: pick(c.genreRows),
+    yearRows: pick(c.yearRows),
+    platformRows: type === "game" ? pick(c.platformRows).sort((a, b) => b.n - a.n) : [],
+    watchRows: pick(watchRows),
+    tagRows: pick(tagRows)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 100),
+  };
 }
 
 /**
@@ -566,27 +587,36 @@ export async function getFocusOverview(db: D1Database, type: MediaType | null = 
 async function computeFocusOverview(db: D1Database, type: MediaType | null): Promise<FocusOverview> {
   const typeFilter = type ? "AND l.media_type = ?" : "";
   const typeParams = type ? [type] : [];
-  const [focusRows, plannedRows] = await db.batch<Record<string, unknown>>([
+  const versions = await getVersions(db);
+  const [focusRows, planned] = await Promise.all([
     db
       .prepare(
         `SELECT ${CARD_COLUMNS} FROM focus fo
          JOIN library_entries l ON l.id = fo.entry_id JOIN media m ON m.id = l.media_id
          WHERE fo.user_id = ? ${typeFilter}`,
       )
-      .bind(CURRENT_USER_ID, ...typeParams),
-    db
-      .prepare(
-        // Index idx_library_user_type_status : seules les entrées du backlog sont lues, dans l'index.
-        `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l INDEXED BY idx_library_user_type_status
-         WHERE l.user_id = ? AND l.media_type IN (${(type ? [type] : MEDIA_TYPES).map(() => "?").join(", ")}) AND l.list_status = 'planned'
-         GROUP BY l.media_type`,
-      )
-      .bind(CURRENT_USER_ID, ...(type ? [type] : MEDIA_TYPES)),
+      .bind(CURRENT_USER_ID, ...typeParams)
+      .all(),
+    // Taille du backlog par type : ne dépend que des statuts, gardée jusqu'au prochain changement de la bibliothèque
+    // (une session notée ne la fait pas recalculer).
+    cachedVersioned(db, "backlog:compteurs", [versions.library], async () =>
+      (
+        await db
+          .prepare(
+            // Index idx_library_user_type_status : seules les entrées du backlog sont lues, dans l'index.
+            `SELECT l.media_type AS key, COUNT(*) AS n FROM library_entries l INDEXED BY idx_library_user_type_status
+             WHERE l.user_id = ? AND l.media_type IN (${MEDIA_TYPES.map(() => "?").join(", ")}) AND l.list_status = 'planned'
+             GROUP BY l.media_type`,
+          )
+          .bind(CURRENT_USER_ID, ...MEDIA_TYPES)
+          .all<{ key: MediaType; n: number }>()
+      ).results,
+    ),
   ]);
   const cards: Partial<Record<MediaType, LibraryCard>> = {};
   for (const row of focusRows.results as unknown as CardRow[]) cards[row.type] = toCard(row);
   const plannedCounts = zeroCounts(MEDIA_TYPES);
-  for (const row of plannedRows.results as { key: MediaType; n: number }[]) plannedCounts[row.key] = row.n;
+  for (const row of planned) if (!type || row.key === type) plannedCounts[row.key] = row.n;
   return { cards, plannedCounts };
 }
 
