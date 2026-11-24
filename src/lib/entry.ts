@@ -165,8 +165,8 @@ export function getKnownTags(db: D1Database, tagsVersion: number): Promise<strin
     const { results } = await db
       .prepare(
         `SELECT t.value AS tag, COUNT(*) AS n
-         FROM progress_log p JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
-         WHERE l.user_id = ? AND p.tags_json IS NOT NULL
+         FROM progress_log p INDEXED BY idx_progress_tags JOIN library_entries l ON l.id = p.entry_id, json_each(p.tags_json) t
+         WHERE p.tags_json IS NOT NULL AND +l.user_id = ?
          GROUP BY t.value ORDER BY n DESC, t.value LIMIT 500`,
       )
       .bind(CURRENT_USER_ID)
