@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SeasonEpisodeResponse } from "@/lib/fiche/types";
-import { dateLabel, durationLabel } from "@/lib/labels";
+import { dateLabel, durationLabel, starsLabel } from "@/lib/labels";
 import type { SeasonInfo } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { PROGRESS_EVENT, useAction } from "../useAction";
+import type { SeasonReviewLine } from "@/lib/season-reviews";
 import { DateInput, datedBody } from "./DateInput";
+import { SeasonReviewsBlock } from "./SeasonReviews";
 import { StarRating } from "./StarRating";
 
 type Loaded = { status: "loading" } | { status: "error"; message: string } | { status: "done"; episodes: SeasonEpisodeResponse[] };
@@ -163,7 +165,18 @@ function SeasonMark({ entryId, season, allWatched }: { entryId: number; season: 
   );
 }
 
-export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seasons: SeasonInfo[]; entryId: number | null }) {
+export function SeasonList({
+  tmdbId,
+  seasons,
+  entryId,
+  reviews = [],
+}: {
+  tmdbId: string;
+  seasons: SeasonInfo[];
+  entryId: number | null;
+  /** Tes notes / critiques de saison, la plus récente d'abord. */
+  reviews?: SeasonReviewLine[];
+}) {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState<Record<number, Loaded>>({});
 
@@ -216,6 +229,9 @@ export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seaso
         const state = loaded[s.seasonNumber];
         const isOpen = open.has(s.seasonNumber);
         const watched = state?.status === "done" ? state.episodes.filter((e) => e.watched).length : null;
+        const seasonReviews = reviews.filter((r) => r.season === s.seasonNumber);
+        // Ta note la plus récente pour la saison (les critiques sans note ne comptent pas).
+        const myRating = seasonReviews.find((r) => r.rating !== null)?.rating ?? null;
         return (
           <li key={s.seasonNumber} className="rounded-lg bg-white/5 ring-1 ring-white/10">
             <button
@@ -228,17 +244,26 @@ export function SeasonList({ tmdbId, seasons, entryId }: { tmdbId: string; seaso
                 <span className={`mr-2 inline-block transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
                 {s.name ?? (s.seasonNumber === 0 ? "Épisodes spéciaux" : `Saison ${s.seasonNumber}`)}
               </span>
-              <span className="text-white/60">
-                {[
-                  watched !== null && watched > 0 ? `${watched} vu${watched > 1 ? "s" : ""} sur ${s.episodeCount}` : plural(s.episodeCount, "épisode"),
-                  s.airDate ? s.airDate.slice(0, 4) : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+              <span className="flex flex-wrap items-baseline justify-end gap-x-2 text-white/60">
+                {myRating !== null && <span className="text-amber-300">★ {starsLabel(myRating)}</span>}
+                {s.score ? <span title="Note TMDB de la saison">TMDB {s.score.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</span> : null}
+                <span>
+                  {[
+                    watched !== null && watched > 0 ? `${watched} vu${watched > 1 ? "s" : ""} sur ${s.episodeCount}` : plural(s.episodeCount, "épisode"),
+                    s.airDate ? s.airDate.slice(0, 4) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
               </span>
             </button>
             {isOpen && (
               <div className="border-t border-white/10 px-4">
+                {entryId !== null && s.seasonNumber > 0 && (
+                  <div className="border-b border-white/10">
+                    <SeasonReviewsBlock entryId={entryId} season={s.seasonNumber} reviews={seasonReviews} />
+                  </div>
+                )}
                 {state?.status === "loading" && <p className="py-3 text-sm text-white/60">Chargement des épisodes…</p>}
                 {state?.status === "error" && <p className="py-3 text-sm text-rose-400">{state.message}</p>}
                 {state?.status === "done" &&

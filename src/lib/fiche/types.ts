@@ -53,6 +53,20 @@ export interface FicheLink {
   url: string;
 }
 
+/** Note de l'œuvre chez une source (TMDB, IGDB, MyAnimeList), affichée sur la fiche seulement. */
+export interface FicheScore {
+  /** « TMDB », « IGDB · joueurs », « IGDB · presse », « MyAnimeList ». */
+  source: string;
+  value: number;
+  /** Échelle de la source : sur 10 ou sur 100. */
+  scale: 10 | 100;
+  votes: number | null;
+  /** « votes », « critiques »… */
+  votesLabel: string;
+  /** Classement (MyAnimeList). */
+  rank: number | null;
+}
+
 export interface MediaFiche {
   type: MediaType;
   externalId: string;
@@ -87,6 +101,8 @@ export interface MediaFiche {
   providers: FicheProviders | null;
   related: RelatedGroup[];
   links: FicheLink[];
+  /** Notes des sources ; vide si aucune (Comic Vine n'en a pas). */
+  scores: FicheScore[];
 }
 
 /** Épisode d'une saison tel que renvoyé par /api/fiche/tv/:id/saison/:n. */

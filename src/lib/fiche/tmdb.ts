@@ -1,7 +1,7 @@
 // Fiche d'un film ou d'une série depuis TMDB : détails, équipe, plateformes (JustWatch), saga.
 import { tmdbGet, tmdbImage } from "../sources/tmdb";
 import { yearOf } from "../types";
-import type { FicheCredit, FichePerson, FicheProvider, FicheProviders, MediaFiche, RelatedGroup } from "./types";
+import type { FicheCredit, FichePerson, FicheProvider, FicheProviders, FicheScore, MediaFiche, RelatedGroup } from "./types";
 
 interface Named {
   name: string;
@@ -30,6 +30,8 @@ interface TmdbCommon {
   production_companies?: Named[];
   external_ids?: { imdb_id?: string | null };
   "watch/providers"?: TmdbProviders;
+  vote_average?: number;
+  vote_count?: number;
 }
 
 interface TmdbMovieFull extends TmdbCommon {
@@ -54,7 +56,7 @@ interface TmdbTvFull extends TmdbCommon {
   created_by: Named[];
   networks: Named[];
   next_episode_to_air: { air_date: string; season_number: number; episode_number: number; name: string } | null;
-  seasons: { season_number: number; episode_count: number; name: string; air_date: string | null }[];
+  seasons: { season_number: number; episode_count: number; name: string; air_date: string | null; vote_average?: number }[];
   aggregate_credits?: {
     cast: { name: string; profile_path: string | null; roles: { character: string }[] }[];
     crew: { name: string; jobs: { job: string }[] }[];
@@ -117,6 +119,13 @@ const TV_STATE: Record<string, string> = {
 };
 
 /** Synopsis français, sinon anglais (beaucoup de fiches TMDB n'ont pas de résumé traduit). */
+/** Note TMDB, s'il y a des votes. */
+function tmdbScores(c: TmdbCommon): FicheScore[] {
+  return c.vote_count && c.vote_average
+    ? [{ source: "TMDB", value: c.vote_average, scale: 10, votes: c.vote_count, votesLabel: "votes", rank: null }]
+    : [];
+}
+
 async function overviewFallback(token: string, path: string, overview: string): Promise<string | null> {
   if (overview) return overview;
   try {
@@ -200,6 +209,7 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
       providers: providersFor(m["watch/providers"], region),
       related,
       links: links(m.external_ids?.imdb_id, m.homepage),
+      scores: tmdbScores(m),
     };
   }
 
@@ -244,6 +254,7 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
       episodeCount: season.episode_count,
       name: season.name || null,
       airDate: season.air_date || null,
+      score: season.vote_average ? season.vote_average : null,
     })),
     platforms: [],
     timeToBeat: null,
@@ -265,6 +276,7 @@ export async function getTmdbFiche(token: string, type: "movie" | "tv", id: stri
     providers: providersFor(s["watch/providers"], region),
     related: [],
     links: links(s.external_ids?.imdb_id, s.homepage),
+    scores: tmdbScores(s),
   };
 }
 

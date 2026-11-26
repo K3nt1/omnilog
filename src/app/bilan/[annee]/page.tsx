@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Fragment } from "react";
 import { BilanExport } from "@/components/bilan/BilanExport";
 import { MonthChart } from "@/components/bilan/MonthChart";
 import { getBilan, bilanYears } from "@/lib/bilan";
@@ -169,30 +170,53 @@ export default async function BilanPage({ params }: { params: Promise<{ annee: s
 
       {!empty && (
         <>
-          {bilan.types.some((t) => t.top.length > 0) && (
+          {bilan.types.some((t) => t.top.length > 0 || (t.topSeasons?.length ?? 0) > 0) && (
             <section className="space-y-4">
               <h2 className="text-xl font-semibold">Les mieux notées</h2>
               <div className="grid gap-x-8 gap-y-5 lg:grid-cols-2">
-              {bilan.types
-                .filter((t) => t.top.length > 0)
-                .map((t) => (
-                  <div key={t.type}>
-                    <h3 className={`mb-2 text-sm font-semibold ${TYPE_TEXT[t.type]}`}>{TYPE_LABELS[t.type]}</h3>
-                    <ol className="flex gap-3 overflow-x-auto pb-1">
-                      {t.top.map((w, i) => (
-                        <li key={w.entryId} className="w-24 shrink-0 sm:w-28">
-                          <div className="relative">
-                            <Poster work={w} className="w-full" />
-                            <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 text-xs font-bold">{i + 1}</span>
-                          </div>
-                          <p className="mt-1 truncate text-xs" title={w.title}>
-                            {w.title}
-                          </p>
-                          <p className="text-xs text-amber-300">★ {starsLabel(w.rating)}</p>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
+                {bilan.types.map((t) => (
+                  <Fragment key={t.type}>
+                    {t.top.length > 0 && (
+                      <div>
+                        <h3 className={`mb-2 text-sm font-semibold ${TYPE_TEXT[t.type]}`}>{TYPE_LABELS[t.type]}</h3>
+                        <ol className="flex gap-3 overflow-x-auto pb-1">
+                          {t.top.map((w, i) => (
+                            <li key={w.entryId} className="w-24 shrink-0 sm:w-28">
+                              <div className="relative">
+                                <Poster work={w} className="w-full" />
+                                <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 text-xs font-bold">{i + 1}</span>
+                              </div>
+                              <p className="mt-1 truncate text-xs" title={w.title}>
+                                {w.title}
+                              </p>
+                              <p className="text-xs text-amber-300">★ {starsLabel(w.rating)}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {t.topSeasons && t.topSeasons.length > 0 && (
+                      <div>
+                        <h3 className={`mb-2 text-sm font-semibold ${TYPE_TEXT[t.type]}`}>Saisons de séries</h3>
+                        <ol className="flex gap-3 overflow-x-auto pb-1">
+                          {t.topSeasons.map((s, i) => (
+                            <li key={`${s.work.entryId}-${s.season}`} className="w-24 shrink-0 sm:w-28">
+                              <div className="relative">
+                                <Poster work={s.work} className="w-full" />
+                                <span className="absolute left-1 top-1 rounded bg-black/75 px-1.5 text-xs font-bold">{i + 1}</span>
+                                <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1.5 text-xs font-semibold">S{s.season}</span>
+                              </div>
+                              <p className="mt-1 truncate text-xs" title={`${s.work.title} · ${s.name ?? `Saison ${s.season}`}`}>
+                                {s.work.title}
+                              </p>
+                              <p className="truncate text-xs text-white/50">{s.name ?? `Saison ${s.season}`}</p>
+                              <p className="text-xs text-amber-300">★ {starsLabel(s.rating)}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </Fragment>
                 ))}
               </div>
             </section>
