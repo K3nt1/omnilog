@@ -36,5 +36,6 @@ export async function getComicVineFiche(access: ComicVineAccess, id: string): Pr
     related: [],
     // Lien vers Comic Vine demandé par ses conditions d'utilisation.
     links: [{ label: "Comic Vine", url: volume.site_detail_url ?? `https://comicvine.gamespot.com/volume/4050-${volume.id}/` }],
+    scores: [], // Comic Vine ne donne pas de note.
   };
 }

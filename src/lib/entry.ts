@@ -3,6 +3,7 @@ import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID, statusesByExternalId } from "./library";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
 import { cachedVersioned } from "./data-version";
+import { seasonReviewsStatement, toSeasonReviewLine, type SeasonReviewLine, type SeasonReviewRow } from "./season-reviews";
 import { GAME_ONLY_STATUSES, SOURCE_FOR_TYPE, storedStatus, type LibraryStatus, type MediaType } from "./types";
 
 export interface StoredMedia {
@@ -83,6 +84,8 @@ export interface StoredFiche {
   media: StoredMedia | null;
   entry: LibraryEntry | null;
   journal: JournalLine[];
+  /** Séries : notes et critiques des saisons, la plus récente d'abord. */
+  seasonReviews: SeasonReviewLine[];
   watchRegion: string;
   /** Tous tes tags du journal, du plus utilisé au moins utilisé (suggestions à la saisie). */
   knownTags: string[];
@@ -178,7 +181,7 @@ export function getKnownTags(db: D1Database, tagsVersion: number): Promise<strin
 /** Tout ce que la base sait d'une œuvre, en un seul aller-retour (3 requêtes). */
 export async function getStoredFiche(db: D1Database, type: MediaType, externalId: string): Promise<StoredFiche> {
   const source = SOURCE_FOR_TYPE[type];
-  const [mediaRows, journalRows, userRows] = await db.batch<Record<string, unknown>>([
+  const [mediaRows, journalRows, userRows, seasonRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
         `SELECT m.*, l.id AS entry_id, l.list_status AS status, l.mastered, EXISTS (SELECT 1 FROM focus f WHERE f.entry_id = l.id) AS is_focus, l.is_favorite, l.rating, l.review,
@@ -203,6 +206,8 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
       )
       .bind(CURRENT_USER_ID, type, source, externalId),
     db.prepare("SELECT watch_region, tags_version FROM users WHERE id = ?").bind(CURRENT_USER_ID),
+    // Séries seulement : les autres types n'ont pas de critiques de saison (pas de lecture inutile).
+    ...(type === "tv" ? [seasonReviewsStatement(db, source, externalId)] : []),
   ]);
   // Tags déjà utilisés (suggestions) : relus seulement quand un tag change (migration 0019).
   const tagsVersion = Number((userRows.results[0] as { tags_version?: number } | undefined)?.tags_version ?? 0);
@@ -278,7 +283,8 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
   }));
 
   const region = (userRows.results[0] as { watch_region?: string } | undefined)?.watch_region ?? "FR";
-  return { media, entry, journal, watchRegion: region, knownTags };
+  const seasonReviews = ((seasonRows?.results ?? []) as unknown as SeasonReviewRow[]).map(toSeasonReviewLine);
+  return { media, entry, journal, seasonReviews, watchRegion: region, knownTags };
 }
 
 /** Statut dans ta bibliothèque des œuvres liées affichées sur la fiche (« Vu », « À voir »…). */

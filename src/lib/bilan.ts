@@ -5,6 +5,7 @@ import {
   streakOf,
   weekdayOf,
   type BilanData,
+  type BilanSeason,
   type BilanType,
   type BilanWork,
 } from "./bilan-shared";
@@ -84,6 +85,25 @@ interface Row {
   a: number; // déjà fait avant
 }
 
+interface SeasonRow {
+  e: number; // entrée
+  s: number; // saison
+  rt: number; // note
+  d: string; // jour local
+  nm: string | null; // nom TMDB de la saison
+}
+
+/** Les 5 saisons les mieux notées ; à note égale, la plus récemment notée d'abord. */
+function topSeasons(latest: Map<string, SeasonRow>, toWork: (id: number) => BilanWork | null): BilanSeason[] {
+  return [...latest.values()]
+    .sort((x, y) => y.rt - x.rt || (x.d < y.d ? 1 : x.d > y.d ? -1 : 0))
+    .flatMap((r) => {
+      const work = toWork(r.e);
+      return work ? [{ work, season: r.s, name: r.nm, rating: r.rt }] : [];
+    })
+    .slice(0, 5);
+}
+
 interface WorkRow {
   id: number;
   media_type: MediaType;
@@ -102,7 +122,7 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
   const to = new Date(Date.parse(`${next}T00:00:00Z`) + 86400_000).toISOString();
   const day = daySql("r.logged_at", offsetSegments(year, timeZone));
 
-  const [logs, completions] = await db.batch<Row>([
+  const [logs, completions, seasonRows] = await db.batch<Row & SeasonRow>([
     // « Déjà fait avant » : rang du même épisode / chapitre / film / fin dans tout l'historique de l'œuvre.
     db
       .prepare(
@@ -138,10 +158,28 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
                            AND substr(p.logged_at, 1, 10) = substr(l.completed_at, 1, 10))`,
       )
       .bind(CURRENT_USER_ID, first, next),
+    // Saisons notées dans l'année (datées), avec leur nom TMDB : la note la plus récente de chaque saison compte.
+    db
+      .prepare(
+        `WITH dated AS (
+           SELECT r.id, r.entry_id, r.season, r.rating, r.logged_at, ${day.sql} AS d
+           FROM season_reviews r JOIN library_entries l ON l.id = r.entry_id
+           WHERE +l.user_id = ? AND r.undated = 0 AND r.rating IS NOT NULL AND r.logged_at >= ? AND r.logged_at < ?
+         )
+         SELECT x.entry_id AS e, x.season AS s, x.rating AS rt, x.d, ms.name AS nm
+         FROM dated x JOIN library_entries l ON l.id = x.entry_id
+         LEFT JOIN media_seasons ms ON ms.media_id = l.media_id AND ms.season_number = x.season
+         WHERE x.d >= ? AND x.d < ?
+         ORDER BY x.logged_at DESC, x.id DESC`,
+      )
+      .bind(...day.params, CURRENT_USER_ID, from, to, first, next),
   ]);
   const rows = [...logs.results, ...completions.results].sort((x, y) => (x.d < y.d ? -1 : x.d > y.d ? 1 : 0));
 
-  const ids = [...new Set(rows.map((r) => r.e))];
+  // Note la plus récente de chaque saison (une saison revue et renotée ne compte qu'une fois).
+  const latestSeason = new Map<string, SeasonRow>();
+  for (const r of seasonRows.results as SeasonRow[]) if (!latestSeason.has(`${r.e}:${r.s}`)) latestSeason.set(`${r.e}:${r.s}`, r);
+  const ids = [...new Set([...rows.map((r) => r.e), ...[...latestSeason.values()].map((r) => r.e)])];
   const works = new Map<number, WorkRow>();
   if (ids.length > 0) {
     const { results } = await db
@@ -224,6 +262,7 @@ export async function computeBilan(db: D1Database, year: number, timeZone: strin
       units,
       completed: t.completed.size,
       top: rated.slice(0, 5).map((w) => w.work),
+      ...(type === "tv" ? { topSeasons: topSeasons(latestSeason, toWork) } : {}),
       worst: lowest && lowest.work.rating! < rated[0].work.rating! ? lowest.work : null,
       streak: streakOf(t.days),
       first: firstWork ? { work: firstWork, day: firstRow.d } : null,
