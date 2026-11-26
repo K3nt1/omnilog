@@ -11,8 +11,8 @@ const API = "https://comicvine.gamespot.com/api";
 const USER_AGENT = "Omnilog/0.8 (+https://omnilog.kantinus.workers.dev)";
 /** Une série dont le dernier numéro date de moins de 4 mois (ou annoncé) est considérée en cours de publication. */
 const ONGOING_DAYS = 120;
-/** Numéros chargés au plus pour une série (5 pages de 100). */
-export const MAX_ISSUES = 500;
+/** Numéros par page dans la liste d'une série (une requête Comic Vine par page). */
+export const ISSUES_PER_PAGE = 100;
 
 interface CvImage {
   medium_url?: string;
@@ -69,15 +69,22 @@ function cacheTtl(path: string, params: Record<string, string>): number {
   return 24 * HOUR;
 }
 
+const DAY = 24 * HOUR;
+
 /** Appel à l'API (clé, format JSON, User-Agent), réponses gardées dans D1, erreurs de Comic Vine traduites. */
-async function cv<T>(access: ComicVineAccess, path: string, params: Record<string, string>): Promise<CvResponse<T>> {
+async function cv<T>(
+  access: ComicVineAccess,
+  path: string,
+  params: Record<string, string>,
+  ttl?: (response: CvResponse<T>) => number,
+): Promise<CvResponse<T>> {
   const key = access.COMICVINE_API_KEY;
   if (!key) throw new SourceError("Comic Vine", "Comic Vine : clé d'API absente (COMICVINE_API_KEY)");
   const cacheKey = `cv:${path}?${Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join("&")}`;
-  return cached(access.DB, cacheKey, cacheTtl(path, params), () => cvFetch<T>(key, path, params));
+  return cached(access.DB, cacheKey, ttl ?? cacheTtl(path, params), () => cvFetch<T>(key, path, params));
 }
 
 async function cvFetch<T>(key: string, path: string, params: Record<string, string>): Promise<CvResponse<T>> {
@@ -294,34 +301,74 @@ export async function getComicVineDetails(access: ComicVineAccess, id: string): 
   };
 }
 
+const ISSUE_FIELDS = "id,issue_number,name,cover_date,store_date,image,site_detail_url";
+
+/** Par numéro (« Annual 1 » et autres numéros non numériques à la fin), puis par date. */
+function byIssueNumber(a: CvIssue, b: CvIssue): number {
+  const na = issueNumber(a.issue_number);
+  const nb = issueNumber(b.issue_number);
+  if (na !== null && nb !== null && na !== nb) return na - nb;
+  if (na === null && nb !== null) return 1;
+  if (na !== null && nb === null) return -1;
+  return (issueDate(a) ?? "").localeCompare(issueDate(b) ?? "");
+}
+
+export interface IssuePage {
+  issues: CvIssue[];
+  /** Page renvoyée (à partir de 0). */
+  page: number;
+  /** Nombre de pages de la série. */
+  pages: number;
+  /** Nombre de numéros de la série. */
+  total: number;
+}
+
 /**
- * Tous les numéros d'une série (jusqu'à MAX_ISSUES), triés par numéro puis par date.
- * Les numéros non numériques (« Annual 1 ») viennent à la fin.
+ * Une page de numéros d'une série (une requête), dans l'ordre de parution.
+ * `page` : numéro de page, ou `{ around: n }` pour la page qui contient sans doute le n° n.
+ * Une page pleine qui n'est pas la dernière reste en cache 7 jours (ces numéros ne bougent plus) ;
+ * la dernière, où arrivent les nouveaux numéros, 12 heures.
  */
-export async function getComicVineIssues(access: ComicVineAccess, id: string, count: number | null): Promise<CvIssue[]> {
+export async function getComicVineIssuePage(access: ComicVineAccess, id: string, page: number | { around: number }): Promise<IssuePage> {
   if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
-  const params = (offset: number) => ({
-    filter: `volume:${id}`,
-    sort: "cover_date:asc",
-    limit: "100",
-    offset: String(offset),
-    field_list: "id,issue_number,name,cover_date,store_date,image,site_detail_url",
-  });
-  const first = await cv<CvIssue[]>(access, "issues/", params(0));
-  const total = Math.min(first.number_of_total_results ?? count ?? 0, MAX_ISSUES);
-  const offsets: number[] = [];
-  for (let offset = 100; offset < total; offset += 100) offsets.push(offset);
-  // Une page après l'autre : Comic Vine bloque les rafales de requêtes.
-  const issues = [...first.results];
-  for (const offset of offsets) issues.push(...(await cv<CvIssue[]>(access, "issues/", params(offset))).results);
-  return issues.sort((a, b) => {
-    const na = issueNumber(a.issue_number);
-    const nb = issueNumber(b.issue_number);
-    if (na !== null && nb !== null && na !== nb) return na - nb;
-    if (na === null && nb !== null) return 1;
-    if (na !== null && nb === null) return -1;
-    return (issueDate(a) ?? "").localeCompare(issueDate(b) ?? "");
-  });
+  const fetchPage = (p: number) =>
+    cv<CvIssue[]>(
+      access,
+      "issues/",
+      { filter: `volume:${id}`, sort: "cover_date:asc", limit: String(ISSUES_PER_PAGE), offset: String(p * ISSUES_PER_PAGE), field_list: ISSUE_FIELDS },
+      (r) => (r.results.length === ISSUES_PER_PAGE && (p + 1) * ISSUES_PER_PAGE < (r.number_of_total_results ?? 0) ? 7 * DAY : 12 * HOUR),
+    );
+  // Les numéros suivent à peu près l'ordre de parution : le n° 742 est vers la 8e page.
+  let p = typeof page === "number" ? page : Math.floor(Math.max(page.around - 1, 0) / ISSUES_PER_PAGE);
+  p = Math.max(0, Math.min(p, 1000));
+  let data = await fetchPage(p);
+  let total = data.number_of_total_results ?? data.results.length;
+  const pages = Math.max(1, Math.ceil(total / ISSUES_PER_PAGE));
+  // Page au-delà de la fin (moins de numéros que prévu) : la dernière à la place.
+  if (p >= pages && total > 0) {
+    p = pages - 1;
+    data = await fetchPage(p);
+    total = data.number_of_total_results ?? total;
+  }
+  return { issues: [...data.results].sort(byIssueNumber), page: p, pages, total };
+}
+
+/** Un numéro précis d'une série (« 742 », « Annual 1 ») : une seule requête, sans charger la liste. */
+export async function findComicVineIssue(access: ComicVineAccess, id: string, label: string): Promise<CvIssue[]> {
+  if (!/^\d{1,12}$/.test(id)) throw new SourceError("Comic Vine", "Comic Vine : série introuvable", 404);
+  const data = await cv<CvIssue[]>(
+    access,
+    "issues/",
+    // Les filtres Comic Vine sont séparés par des virgules et des deux-points : la saisie est vérifiée avant.
+    { filter: `volume:${id},issue_number:${label}`, limit: "20", field_list: ISSUE_FIELDS },
+    (r) => (r.results.length > 0 ? 7 * DAY : 12 * HOUR),
+  );
+  // Par sécurité, seuls les numéros qui correspondent vraiment à la saisie sont gardés (« 7 » ≠ « 70 »).
+  const wanted = label.trim().toLowerCase();
+  const n = issueNumber(label);
+  return data.results
+    .filter((i) => i.issue_number?.trim().toLowerCase() === wanted || (n !== null && issueNumber(i.issue_number) === n))
+    .sort(byIssueNumber);
 }
 
 /** Couvertures des premiers numéros, pour choisir l'affiche d'une série. */

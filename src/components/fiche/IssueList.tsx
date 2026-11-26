@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { ComicIssueResponse } from "@/lib/fiche/types";
 import { dateLabel } from "@/lib/labels";
 import { htmlToPlain, RichText } from "../RichText";
@@ -15,7 +15,7 @@ type Loaded =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "done"; issues: ComicIssueResponse[]; truncated: boolean };
+  | { status: "done"; issues: ComicIssueResponse[]; page: number; pages: number; total: number };
 
 /** Actions sur un numéro : cocher (avec note / critique), noter, écrire la critique, retirer. */
 function IssueActions({ entryId, issue, number }: { entryId: number; issue: ComicIssueResponse; number: number }) {
@@ -127,8 +127,27 @@ function Issue({ issue, entryId, current }: { issue: ComicIssueResponse; entryId
   );
 }
 
+interface PageResponse {
+  issues?: ComicIssueResponse[];
+  page?: number;
+  pages?: number;
+  total?: number;
+  readCount?: number;
+  error?: string;
+}
+
+/** Recherche « Aller au numéro » : une requête pour ce numéro seulement. */
+type Search =
+  | { status: "idle" }
+  | { status: "loading"; label: string }
+  | { status: "error"; label: string; message: string }
+  | { status: "done"; label: string; issues: ComicIssueResponse[] };
+
+const pagerButton = "rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 disabled:opacity-40";
+
 /**
- * Numéros d'une série de comics : la liste se charge à l'ouverture (Comic Vine limite le nombre de requêtes).
+ * Numéros d'une série de comics, par pages de 100 (une requête Comic Vine par page, gardée en cache) :
+ * la liste s'ouvre sur la page de ton prochain numéro, et « Aller au numéro » cherche un seul numéro sans charger la liste.
  * Cocher un numéro ne coche que lui : on lit souvent des numéros isolés.
  */
 export function IssueList({
@@ -145,37 +164,69 @@ export function IssueList({
 }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<Loaded>({ status: "idle" });
+  const [search, setSearch] = useState<Search>({ status: "idle" });
+  const [query, setQuery] = useState("");
   const [hideRead, setHideRead] = useState(false);
+  const [readTotal, setReadTotal] = useState<number | null>(null);
   const openRef = useRef(false);
   const listRef = useRef<HTMLUListElement | null>(null);
-  const scrolled = useRef(false);
+  const scrollToCurrent = useRef(true);
+  const pageRef = useRef<number | null>(null);
+  const searchRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/fiche/comics/${comicId}/numeros`);
-      const json = (await res.json()) as { issues?: ComicIssueResponse[]; truncated?: boolean; error?: string };
-      if (!res.ok || !json.issues) throw new Error(json.error ?? "Numéros indisponibles.");
-      setState({ status: "done", issues: json.issues, truncated: json.truncated === true });
-    } catch (e) {
-      setState({ status: "error", message: e instanceof Error ? e.message : "Numéros indisponibles." });
-    }
-  }, [comicId]);
+  /** Page `page`, ou celle de ton prochain numéro (null). */
+  const load = useCallback(
+    async (page: number | null) => {
+      try {
+        const param = page !== null ? `page=${page}` : `autour=${currentIssue ?? 1}`;
+        const res = await fetch(`/api/fiche/comics/${comicId}/numeros?${param}`);
+        const json = (await res.json()) as PageResponse;
+        if (!res.ok || !json.issues) throw new Error(json.error ?? "Numéros indisponibles.");
+        pageRef.current = json.page ?? 0;
+        setReadTotal(json.readCount ?? null);
+        setState({ status: "done", issues: json.issues, page: json.page ?? 0, pages: json.pages ?? 1, total: json.total ?? json.issues.length });
+      } catch (e) {
+        setState({ status: "error", message: e instanceof Error ? e.message : "Numéros indisponibles." });
+      }
+    },
+    [comicId, currentIssue],
+  );
 
-  // Liste ouverte : rechargée quand une progression est faite ailleurs sur la page (ou ici).
+  const find = useCallback(
+    async (label: string) => {
+      setSearch((prev) => (prev.status === "done" && prev.label === label ? prev : { status: "loading", label }));
+      try {
+        const res = await fetch(`/api/fiche/comics/${comicId}/numeros?numero=${encodeURIComponent(label)}`);
+        const json = (await res.json()) as PageResponse;
+        if (!res.ok || !json.issues) throw new Error(json.error ?? "Recherche impossible.");
+        setReadTotal(json.readCount ?? null);
+        setSearch({ status: "done", label, issues: json.issues });
+      } catch (e) {
+        setSearch({ status: "error", label, message: e instanceof Error ? e.message : "Recherche impossible." });
+      }
+    },
+    [comicId],
+  );
+
+  // Liste ouverte : la page affichée (et la recherche) se rechargent quand une progression est faite (ici ou ailleurs sur la page).
   useEffect(() => {
     const reload = () => {
-      if (openRef.current) void load();
+      if (!openRef.current) return;
+      if (pageRef.current !== null) void load(pageRef.current);
+      if (searchRef.current !== null) void find(searchRef.current);
     };
     window.addEventListener(PROGRESS_EVENT, reload);
     return () => window.removeEventListener(PROGRESS_EVENT, reload);
-  }, [load]);
+  }, [load, find]);
 
-  // Au premier chargement, la liste défile jusqu'au prochain numéro à lire.
+  // À l'ouverture, la liste défile jusqu'au prochain numéro à lire ; en changeant de page, elle revient en haut.
   useEffect(() => {
-    if (state.status !== "done" || scrolled.current || !listRef.current) return;
-    scrolled.current = true;
-    const el = listRef.current.querySelector<HTMLElement>("[data-current]");
-    if (el) listRef.current.scrollTop = el.offsetTop - listRef.current.offsetTop - 160; // le numéro d'avant reste visible
+    if (state.status !== "done" || !listRef.current) return;
+    if (scrollToCurrent.current) {
+      scrollToCurrent.current = false;
+      const el = listRef.current.querySelector<HTMLElement>("[data-current]");
+      if (el) listRef.current.scrollTop = el.offsetTop - listRef.current.offsetTop - 160; // le numéro d'avant reste visible
+    }
   }, [state]);
 
   async function toggle() {
@@ -184,17 +235,38 @@ export function IssueList({
     openRef.current = next;
     if (next && (state.status === "idle" || state.status === "error")) {
       setState({ status: "loading" });
-      await load();
+      await load(null);
     }
   }
 
+  async function goTo(page: number) {
+    setState({ status: "loading" });
+    if (listRef.current) listRef.current.scrollTop = 0;
+    await load(page);
+  }
+
+  function submitSearch(event: FormEvent) {
+    event.preventDefault();
+    const label = query.trim().replace(/^#/, "");
+    if (!label) return;
+    searchRef.current = label;
+    void find(label);
+  }
+
+  function clearSearch() {
+    searchRef.current = null;
+    setSearch({ status: "idle" });
+    setQuery("");
+  }
+
   const issues = state.status === "done" ? state.issues : [];
-  const readCount = issues.filter((i) => i.read).length;
   const shown = hideRead ? issues.filter((i) => !i.read) : issues;
   // Prochain numéro à lire : le premier numéro numérique à partir de la position (ex. #42, ou #43 s'il n'y a pas de #42).
   const currentId =
     currentIssue !== null ? (issues.find((i) => i.number !== null && i.number >= currentIssue && !i.read)?.id ?? null) : null;
-  const total = state.status === "done" ? issues.length : issueCount;
+  const total = state.status === "done" ? state.total : issueCount;
+  const first = state.status === "done" ? issues.find((i) => i.number !== null)?.label : undefined;
+  const last = state.status === "done" ? [...issues].reverse().find((i) => i.number !== null)?.label : undefined;
 
   return (
     <div className="rounded-lg bg-white/5 ring-1 ring-white/10">
@@ -209,36 +281,83 @@ export function IssueList({
           {open ? "Numéros" : "Afficher les numéros"}
         </span>
         <span className="text-white/60">
-          {state.status === "done" && readCount > 0
-            ? `${readCount} lu${readCount > 1 ? "s" : ""} sur ${total}`
+          {readTotal !== null && readTotal > 0 && total
+            ? `${readTotal} lu${readTotal > 1 ? "s" : ""} sur ${total}`
             : total
               ? `${total} numéro${total > 1 ? "s" : ""}`
               : null}
         </span>
       </button>
       {open && (
-        <div className="border-t border-white/10 px-4">
-          {state.status === "loading" && <p className="py-3 text-sm text-white/60">Chargement des numéros…</p>}
-          {state.status === "error" && <p className="py-3 text-sm text-rose-400">{state.message}</p>}
+        <div className="space-y-3 border-t border-white/10 px-4 py-3">
+          <form onSubmit={submitSearch} className="flex flex-wrap items-center gap-2 text-sm">
+            <label htmlFor={`numero-${comicId}`} className="text-white/60">
+              Aller au numéro
+            </label>
+            <input
+              id={`numero-${comicId}`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              inputMode="decimal"
+              maxLength={20}
+              placeholder="742"
+              className="w-24 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 outline-none focus:border-white/40"
+            />
+            <button type="submit" disabled={!query.trim() || search.status === "loading"} className={pagerButton}>
+              {search.status === "loading" ? "…" : "Chercher"}
+            </button>
+            {search.status !== "idle" && (
+              <button type="button" onClick={clearSearch} className="text-xs text-white/50 hover:text-white">
+                Effacer
+              </button>
+            )}
+          </form>
+
+          {search.status === "error" && <p className="text-sm text-rose-400">{search.message}</p>}
+          {search.status === "done" &&
+            (search.issues.length === 0 ? (
+              <p className="text-sm text-white/60">Aucun numéro « {search.label} » dans cette série.</p>
+            ) : (
+              <ul className="divide-y divide-white/10 rounded-lg bg-black/20 px-3" aria-label={`Numéro ${search.label}`}>
+                {search.issues.map((issue) => (
+                  <Issue key={`${issue.id}-${issue.read?.logId ?? "non-lu"}`} issue={issue} entryId={entryId} current={false} />
+                ))}
+              </ul>
+            ))}
+
+          {state.status === "loading" && <p className="text-sm text-white/60">Chargement des numéros…</p>}
+          {state.status === "error" && <p className="text-sm text-rose-400">{state.message}</p>}
           {state.status === "done" &&
             (issues.length === 0 ? (
-              <p className="py-3 text-sm text-white/60">Aucun numéro connu.</p>
+              <p className="text-sm text-white/60">Aucun numéro connu.</p>
             ) : (
               <>
-                {readCount > 0 && (
-                  <label className="flex items-center gap-2 pt-3 text-xs text-white/60">
-                    <input type="checkbox" checked={hideRead} onChange={(e) => setHideRead(e.target.checked)} />
-                    Masquer les numéros lus
-                  </label>
-                )}
+                <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
+                  {state.pages > 1 && (
+                    <>
+                      <button type="button" disabled={state.page === 0} onClick={() => goTo(state.page - 1)} className={pagerButton}>
+                        ‹ Précédents
+                      </button>
+                      <span>
+                        {first && last ? `#${first} à #${last}` : `Page ${state.page + 1}`} · page {state.page + 1} sur {state.pages}
+                      </span>
+                      <button type="button" disabled={state.page >= state.pages - 1} onClick={() => goTo(state.page + 1)} className={pagerButton}>
+                        Suivants ›
+                      </button>
+                    </>
+                  )}
+                  {issues.some((i) => i.read) && (
+                    <label className="ml-auto flex items-center gap-2">
+                      <input type="checkbox" checked={hideRead} onChange={(e) => setHideRead(e.target.checked)} />
+                      Masquer les numéros lus
+                    </label>
+                  )}
+                </div>
                 <ul ref={listRef} className="max-h-[36rem] divide-y divide-white/10 overflow-y-auto">
                   {shown.map((issue) => (
                     <Issue key={`${issue.id}-${issue.read?.logId ?? "non-lu"}`} issue={issue} entryId={entryId} current={issue.id === currentId} />
                   ))}
                 </ul>
-                {state.truncated && (
-                  <p className="py-2 text-xs text-white/50">Seuls les {issues.length} premiers numéros sont affichés.</p>
-                )}
               </>
             ))}
         </div>
