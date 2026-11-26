@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/K3nt1/omnilog/compare/v0.12.2...v0.13.0) (2026-11-26)
+
+
+### ✨ Nouveautés
+
+* **fiche:** notes des sources et critiques de saison ([#119](https://github.com/K3nt1/omnilog/issues/119)) ([56f3c5b](https://github.com/K3nt1/omnilog/commit/56f3c5b3fa04c021802a55b49bd2cbe25d8d5c6c))
+
 ## [0.12.2](https://github.com/K3nt1/omnilog/compare/v0.12.1...v0.12.2) (2026-11-24)
 
 
