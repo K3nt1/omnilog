@@ -67,6 +67,8 @@ export interface SeasonInfo {
   episodeCount: number;
   name: string | null;
   airDate: string | null;
+  /** Note TMDB de la saison sur 10 (fiche seulement, jamais enregistrée). */
+  score?: number | null;
 }
 
 /** Fiche complète d'une œuvre, récupérée au moment de l'ajout. */

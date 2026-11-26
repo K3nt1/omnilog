@@ -26,6 +26,9 @@ interface MalFull {
   broadcast?: { day_of_the_week?: string; start_time?: string };
   related_anime?: MalRelated[];
   related_manga?: MalRelated[];
+  mean?: number;
+  rank?: number;
+  num_scoring_users?: number;
 }
 
 const STATE: Record<string, string> = {
@@ -69,7 +72,7 @@ const ROLE: Record<string, string> = { Story: "Scénario", Art: "Dessin", "Story
 const positiveOrNull = (value: number | undefined) => (value && value > 0 ? value : null);
 
 export async function getMalFiche(clientId: string, kind: "anime" | "manga", id: string): Promise<MediaFiche> {
-  const common = "alternative_titles,start_date,synopsis,status,genres,related_anime,related_manga";
+  const common = "alternative_titles,start_date,synopsis,status,genres,related_anime,related_manga,mean,rank,num_scoring_users";
   const fields =
     kind === "anime"
       ? `${common},num_episodes,average_episode_duration,studios,broadcast`
@@ -148,5 +151,8 @@ export async function getMalFiche(clientId: string, kind: "anime" | "manga", id:
     providers: null,
     related,
     links: [{ label: "MyAnimeList", url: `https://myanimelist.net/${kind}/${d.id}` }],
+    scores: d.mean
+      ? [{ source: "MyAnimeList", value: d.mean, scale: 10, votes: d.num_scoring_users ?? null, votesLabel: "votes", rank: d.rank ?? null }]
+      : [],
   };
 }

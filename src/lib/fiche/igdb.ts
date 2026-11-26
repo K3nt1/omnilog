@@ -2,7 +2,7 @@
 import { SourceError } from "../sources/http";
 import { igdbImage, igdbQuery, type IgdbCredentials } from "../sources/igdb";
 import { yearOf } from "../types";
-import type { MediaFiche, RelatedGroup, RelatedWork } from "./types";
+import type { FicheScore, MediaFiche, RelatedGroup, RelatedWork } from "./types";
 
 interface IgdbRef {
   id: number;
@@ -32,10 +32,14 @@ interface IgdbFull {
   remakes?: number[];
   remasters?: number[];
   parent_game?: number;
+  rating?: number;
+  rating_count?: number;
+  aggregated_rating?: number;
+  aggregated_rating_count?: number;
 }
 
 const BASE_FIELDS =
-  "name, slug, url, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, genres.name, platforms.name, platforms.abbreviation";
+  "name, slug, url, summary, cover.image_id, artworks.image_id, screenshots.image_id, first_release_date, genres.name, platforms.name, platforms.abbreviation, rating, rating_count, aggregated_rating, aggregated_rating_count";
 const EXTRA_FIELDS =
   "involved_companies.company.name, involved_companies.developer, involved_companies.publisher, collections.name, collections.games, franchises.name, franchises.games, dlcs, expansions, standalone_expansions, remakes, remasters, parent_game";
 
@@ -117,6 +121,19 @@ export async function getIgdbFiche(env: IgdbCredentials, id: string): Promise<Me
     ? { hastily: toMinutes(times.hastily), normally: toMinutes(times.normally), completely: toMinutes(times.completely) }
     : null;
   const background = game.artworks?.[0] ?? game.screenshots?.[0];
+  // Note des joueurs et note de la presse (moyenne des critiques), sur 100.
+  const scores: FicheScore[] = [];
+  if (game.rating && game.rating_count)
+    scores.push({ source: "IGDB · joueurs", value: game.rating, scale: 100, votes: game.rating_count, votesLabel: "votes", rank: null });
+  if (game.aggregated_rating && game.aggregated_rating_count)
+    scores.push({
+      source: "IGDB · presse",
+      value: game.aggregated_rating,
+      scale: 100,
+      votes: game.aggregated_rating_count,
+      votesLabel: "critiques",
+      rank: null,
+    });
 
   return {
     type: "game",
@@ -151,5 +168,6 @@ export async function getIgdbFiche(env: IgdbCredentials, id: string): Promise<Me
       ...(game.url ? [{ label: "IGDB", url: game.url }] : []),
       { label: "Backloggd", url: `https://backloggd.com/games/${game.slug}/` },
     ],
+    scores,
   };
 }

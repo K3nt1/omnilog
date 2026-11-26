@@ -10,6 +10,15 @@ export interface BilanWork {
   rating: number | null; // 1 à 10
 }
 
+/** Saison notée dans l'année (séries). */
+export interface BilanSeason {
+  work: BilanWork;
+  season: number;
+  /** Nom TMDB de la saison, s'il est connu. */
+  name: string | null;
+  rating: number; // 1 à 10
+}
+
 export interface BilanStreak {
   days: number;
   from: string | null; // AAAA-MM-JJ
@@ -32,6 +41,8 @@ export interface BilanType {
   /** Top des œuvres notées actives dans l'année (5 au plus), meilleure d'abord. */
   top: BilanWork[];
   worst: BilanWork | null;
+  /** Séries : les 5 saisons les mieux notées dans l'année (absent des bilans gardés en cache avant la 0.13). */
+  topSeasons?: BilanSeason[];
   streak: BilanStreak;
   first: { work: BilanWork; day: string } | null;
   last: { work: BilanWork; day: string } | null;

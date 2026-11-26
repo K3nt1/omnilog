@@ -9,10 +9,11 @@ import { ProgressPanel } from "@/components/fiche/ProgressPanel";
 import { Journal } from "@/components/fiche/Journal";
 import { PublisherField } from "@/components/fiche/PublisherField";
 import { SeasonList } from "@/components/fiche/SeasonList";
+import { SeasonReviewPrompt } from "@/components/fiche/SeasonReviews";
 import { TrackingPanel } from "@/components/fiche/TrackingPanel";
-import { getLibraryStatuses, getStoredFiche, type StoredMedia } from "@/lib/entry";
+import { getLibraryStatuses, getStoredFiche, type StoredFiche, type StoredMedia } from "@/lib/entry";
 import { getFiche, type MediaFiche } from "@/lib/fiche";
-import type { RelatedWork } from "@/lib/fiche/types";
+import type { FicheScore, RelatedWork } from "@/lib/fiche/types";
 import {
   dateLabel,
   durationLabel,
@@ -104,7 +105,56 @@ function ficheFromStore(type: MediaType, externalId: string, m: StoredMedia): Me
     providers: null,
     related: [],
     links: [],
+    scores: [],
   };
+}
+
+const compact = new Intl.NumberFormat("fr-FR", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Notes des sources : « TMDB 7,8/10 · 12 k votes », « MyAnimeList 8,9/10 · n° 42 ». */
+function SourceScores({ scores }: { scores: FicheScore[] }) {
+  if (scores.length === 0) return null;
+  return (
+    <ul className="flex flex-wrap gap-2 text-sm" aria-label="Notes des sources">
+      {scores.map((sc) => (
+        <li key={sc.source} className="rounded-lg bg-white/5 px-3 py-1 ring-1 ring-white/10">
+          <span className="text-white/60">{sc.source} </span>
+          <span className="font-semibold">
+            {sc.scale === 100 ? Math.round(sc.value) : sc.value.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}
+          </span>
+          <span className="text-white/50">/{sc.scale}</span>
+          {sc.rank ? <span className="text-white/50"> · n° {sc.rank.toLocaleString("fr-FR")}</span> : null}
+          {sc.votes ? (
+            <span className="text-white/50">
+              {" "}
+              · {compact.format(sc.votes)} {sc.votesLabel}
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Jours pendant lesquels l'invitation « Saison terminée, tu la notes ? » reste proposée. */
+const PROMPT_DAYS = 14;
+
+/**
+ * Saison à proposer de noter : le dernier épisode vu est le dernier de sa saison, il date de moins de
+ * PROMPT_DAYS jours, et aucune note / critique de cette saison n'a été écrite depuis.
+ */
+function seasonToReview(
+  journal: StoredFiche["journal"],
+  reviews: StoredFiche["seasonReviews"],
+  seasons: MediaFiche["seasons"],
+): { season: number; name: string | null; logId: number } | null {
+  const last = journal.find((l) => l.kind === "episode");
+  if (!last || last.season === null || last.season < 1 || last.episode === null) return null;
+  const info = seasons.find((s) => s.seasonNumber === last.season);
+  if (!info || info.episodeCount === 0 || last.episode < info.episodeCount) return null;
+  if (Date.now() - Date.parse(last.at) > PROMPT_DAYS * 86400_000) return null;
+  if (reviews.some((r) => r.season === last.season && r.createdAt >= last.at)) return null;
+  return { season: last.season, name: info.name, logId: last.id };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
@@ -184,6 +234,8 @@ export default async function FichePage({ params }: Props) {
   const backdrop = entry?.customBackdropUrl ?? f.backdropUrl ?? stored.media?.backdropUrl;
   const year = yearOf(f.releaseDate);
   const duration = durationLine(f);
+  const toReview = type === "tv" && entry ? seasonToReview(stored.journal, stored.seasonReviews, f.seasons) : null;
+  const seasonNames = Object.fromEntries(f.seasons.map((s) => [s.seasonNumber, s.name]));
   // Lien Letterboxd importé : plus précis que le lien construit à partir de l'identifiant TMDB.
   const links = f.links.map((l) =>
     l.label === "Letterboxd" && stored.media?.externalLinks.letterboxd ? { ...l, url: stored.media.externalLinks.letterboxd } : l,
@@ -244,6 +296,8 @@ export default async function FichePage({ params }: Props) {
               </ul>
             )}
 
+            <SourceScores scores={f.scores} />
+
             {entry ? (
               <>
                 <TrackingPanel key={`${entry.status}|${entry.rating}|${entry.isFavorite}|${entry.startedAt}|${entry.completedAt}`} entry={entry} type={type} />
@@ -256,6 +310,9 @@ export default async function FichePage({ params }: Props) {
                   totalChapters={f.totalChapters}
                   totalVolumes={f.totalVolumes}
                 />
+                {toReview && (
+                  <SeasonReviewPrompt entryId={entry.id} season={toReview.season} seasonName={toReview.name} logId={toReview.logId} />
+                )}
               </>
             ) : (
               <AddToLibrary type={type} externalId={id} />
@@ -293,7 +350,7 @@ export default async function FichePage({ params }: Props) {
                       }
                     : null
                 }
-                journalCount={stored.journal.length}
+                journalCount={stored.journal.length + stored.seasonReviews.length}
                 sourcePoster={f.posterUrl ?? stored.media.posterUrl}
                 sourceBackdrop={f.backdropUrl ?? stored.media.backdropUrl}
               />
@@ -465,7 +522,7 @@ export default async function FichePage({ params }: Props) {
 
         {f.seasons.length > 0 && (
           <Section title="Saisons et épisodes">
-            <SeasonList tmdbId={id} seasons={f.seasons} entryId={entry?.id ?? null} />
+            <SeasonList tmdbId={id} seasons={f.seasons} entryId={entry?.id ?? null} reviews={stored.seasonReviews} />
           </Section>
         )}
 
@@ -486,6 +543,8 @@ export default async function FichePage({ params }: Props) {
           entryId={entry?.id ?? null}
           titles={[f.title, f.originalTitle]}
           knownTags={stored.knownTags}
+          seasonReviews={stored.seasonReviews}
+          seasonNames={seasonNames}
         />
 
         {f.related.map((group) => (

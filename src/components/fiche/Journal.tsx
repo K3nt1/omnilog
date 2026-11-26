@@ -7,13 +7,13 @@ import { dateLabel, durationLabel, episodeName, issueLabel, starsLabel } from "@
 import type { MediaType } from "@/lib/types";
 import { htmlToPlain, RichText } from "../RichText";
 import { useAction } from "../useAction";
-import { StarRating } from "./StarRating";
-import { TagInput } from "./TagInput";
+import type { SeasonReviewLine } from "@/lib/season-reviews";
+import { LineForm } from "./LineForm";
+import { SeasonReviewItem, seasonTitle } from "./SeasonReviews";
 
 const VERB: Record<MediaType, string> = { movie: "Vu", tv: "Vu", anime: "Vu", manga: "Lu", game: "Joué", comic: "Lu" };
 const AGAIN: Record<MediaType, string> = { movie: "revu", tv: "revue", anime: "revu", manga: "relu", game: "rejoué", comic: "relu" };
 const pad = (n: number) => String(n).padStart(2, "0");
-const field = "rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-sm outline-none focus:border-white/40";
 
 function what(line: JournalLine, titles: (string | null)[], type: MediaType): string | null {
   if (line.kind === "episode") {
@@ -29,72 +29,6 @@ function what(line: JournalLine, titles: (string | null)[], type: MediaType): st
   return null;
 }
 
-/** Formulaire commun : date, note, critique, tags. */
-function LineForm({
-  initial,
-  submitLabel,
-  busy,
-  onSubmit,
-  onCancel,
-  knownTags,
-}: {
-  knownTags: string[];
-  initial: { date: string; rating: number | null; review: string; tags: string[] };
-  submitLabel: string;
-  busy: boolean;
-  /** date = null : sans date (le visionnage est daté du jour de l'ajout, comme sur Letterboxd). */
-  onSubmit: (v: { date: string | null; rating: number | null; review: string | null; tags: string[] }) => void;
-  onCancel: () => void;
-}) {
-  const [date, setDate] = useState(initial.date);
-  const [rating, setRating] = useState(initial.rating);
-  const [review, setReview] = useState(initial.review);
-  const [tags, setTags] = useState(initial.tags);
-  return (
-    <div className="space-y-2 rounded-lg bg-black/30 p-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={field} aria-label="Date du visionnage" />
-        {date ? (
-          <button type="button" onClick={() => setDate("")} className="text-xs text-white/50 hover:text-white">
-            Sans date
-          </button>
-        ) : (
-          <span className="text-xs text-white/50">Sans date : enregistré à la date d&apos;aujourd&apos;hui</span>
-        )}
-        <StarRating value={rating} onChange={setRating} />
-      </div>
-      <textarea
-        value={review}
-        onChange={(e) => setReview(e.target.value)}
-        rows={3}
-        placeholder="Critique (facultatif)"
-        className={`${field} block w-full`}
-      />
-      <TagInput value={tags} onChange={setTags} known={knownTags} />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() =>
-            onSubmit({
-              date: date || null,
-              rating,
-              review: review.trim() || null,
-              tags,
-            })
-          }
-          className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
-        >
-          {busy ? "…" : submitLabel}
-        </button>
-        <button type="button" onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-white/60 hover:text-white">
-          Annuler
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /** « Mon journal » : chaque visionnage, modifiable et supprimable ; ajout d'un visionnage complet (revu, relu…). */
 export function Journal({
   lines,
@@ -102,8 +36,14 @@ export function Journal({
   entryId,
   titles,
   knownTags = [],
+  seasonReviews = [],
+  seasonNames = {},
 }: {
   lines: JournalLine[];
+  /** Séries : notes et critiques de saison, mêlées au journal par date. */
+  seasonReviews?: SeasonReviewLine[];
+  /** Nom TMDB de chaque saison (« Saison 2 · Le retour »). */
+  seasonNames?: Record<number, string | null>;
   type: MediaType;
   entryId: number | null;
   titles: (string | null)[];
@@ -114,12 +54,21 @@ export function Journal({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const today = new Date().toISOString().slice(0, 10);
-  if (lines.length === 0 && entryId === null) return null;
+  const total = lines.length + seasonReviews.length;
+  if (total === 0 && entryId === null) return null;
+  // Journal et critiques de saison, du plus récent au plus ancien (les deux listes arrivent déjà triées).
+  const items: ({ kind: "line"; line: JournalLine } | { kind: "season"; review: SeasonReviewLine })[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < lines.length || j < seasonReviews.length) {
+    if (j >= seasonReviews.length || (i < lines.length && lines[i].at >= seasonReviews[j].at)) items.push({ kind: "line", line: lines[i++] });
+    else items.push({ kind: "season", review: seasonReviews[j++] });
+  }
 
   return (
     <section>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">Mon journal ({lines.length})</h2>
+        <h2 className="text-xl font-semibold">Mon journal ({total})</h2>
         {entryId !== null && !adding && (
           <button type="button" onClick={() => setAdding(true)} className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">
             + {type === "movie" ? "Ajouter un visionnage" : `${AGAIN[type].charAt(0).toUpperCase()}${AGAIN[type].slice(1)} en entier`}
@@ -140,9 +89,18 @@ export function Journal({
           />
         </div>
       )}
-      {lines.length > 0 && (
+      {items.length > 0 && (
         <ul className="divide-y divide-white/10 rounded-xl bg-white/5 ring-1 ring-white/10">
-          {lines.map((line) => {
+          {items.map((item) => {
+            if (item.kind === "season") {
+              const r = item.review;
+              return (
+                <li key={`saison-${r.id}`} className="px-4 py-3">
+                  <SeasonReviewItem review={r} prefix={seasonTitle(r.season, seasonNames[r.season])} />
+                </li>
+              );
+            }
+            const line = item.line;
             const detail = what(line, titles, type);
             return (
               <li key={line.id} className="space-y-1 px-4 py-3 text-sm">
