@@ -214,6 +214,80 @@ export async function getIgdbGamesBySlugs(
   return { bySlug, byId };
 }
 
+/** Titre comparable : sans accents, ponctuation ni majuscules (« Kahoot! » = « kahoot »). */
+export const normalizeGameTitle = (title: string) =>
+  title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+interface IgdbNamedGame extends IgdbGame {
+  alternative_names?: { name: string }[];
+}
+
+/**
+ * Deuxième chance pour les jeux introuvables par slug (slug changé chez IGDB depuis l'ajout sur Backloggd) :
+ * recherche par titre, versions et DLC compris, 10 titres par requête (multiquery IGDB).
+ * Seul un titre identique (nom ou nom alternatif, sans accents ni ponctuation) est retenu : jamais de jeu « approchant ».
+ */
+export async function findIgdbGamesByTitles(env: IgdbCredentials, titles: string[]): Promise<Map<string, MediaDetails>> {
+  const found = new Map<string, MediaDetails>();
+  const unique = [...new Set(titles.map((t) => t.trim()).filter((t) => t.length > 0 && t.length <= 200))];
+  const none = { hastily: null, normally: null, completely: null };
+  for (let start = 0; start < unique.length; start += 10) {
+    const chunk = unique.slice(start, start + 10);
+    const body = chunk
+      .map((title, i) => `query games "${i}" { fields ${GAME_FIELDS}, alternative_names.name; search "${escapeQuery(title)}"; limit 10; };`)
+      .join("\n");
+    const answers = await igdb<{ name: string; result: IgdbNamedGame[] }[]>(env, "multiquery", body);
+    for (const answer of answers) {
+      const title = chunk[Number(answer.name)];
+      if (title === undefined) continue;
+      const wanted = normalizeGameTitle(title);
+      const match = answer.result.find(
+        (g) => normalizeGameTitle(g.name) === wanted || (g.alternative_names ?? []).some((a) => normalizeGameTitle(a.name) === wanted),
+      );
+      if (match) found.set(title, gameDetails(match, none));
+    }
+  }
+  return found;
+}
+
+/** Slug d'un lien de jeu Backloggd ou IGDB collé dans la recherche (« backloggd.com/games/hades/ »), sinon null. */
+export function gameSlugFromLink(query: string): string | null {
+  const slug = query.trim().match(/^(?:https?:\/\/)?(?:www\.)?(?:backloggd\.com|igdb\.com)\/games\/([a-z0-9-]+)\/?(?:[?#].*)?$/i)?.[1];
+  return slug && isGameSlug(slug.toLowerCase()) ? slug.toLowerCase() : null;
+}
+
+const gameResult = (d: MediaDetails): SearchResult => ({
+  key: resultKey("game", "igdb", d.externalId),
+  type: "game",
+  source: "igdb",
+  externalId: d.externalId,
+  title: d.title,
+  originalTitle: null,
+  year: yearOf(d.releaseDate),
+  posterUrl: d.posterUrl,
+  libraryStatus: null,
+  genres: [...new Set(((d.extra.genres as string[] | undefined) ?? []).flatMap((g) => genreLabels(g)))],
+});
+
+/**
+ * Lien de jeu collé dans la recherche : le jeu exact par son slug ; si IGDB ne le connaît plus sous ce slug,
+ * recherche par les mots du slug (versions et DLC compris), pour choisir soi-même.
+ */
+export async function searchIgdbLink(env: IgdbCredentials, slug: string): Promise<SearchResult[]> {
+  const { bySlug } = await getIgdbGamesBySlugs(env, [slug]);
+  const exact = bySlug.get(slug);
+  if (exact) return [gameResult(exact)];
+  const words = slug.replace(/--\d+$/, "").replace(/-+/g, " ").trim();
+  if (!words) return [];
+  const games = await igdb<IgdbGame[]>(env, "games", `fields ${GAME_FIELDS}; search "${escapeQuery(words)}"; limit 12;`);
+  const none = { hastily: null, normally: null, completely: null };
+  return games.map((g) => gameResult(gameDetails(g, none)));
+}
+
 /** Appel brut à l'API IGDB (fiche média). */
 export const igdbQuery = igdb;
 export const igdbImage = (imageId: string | undefined, size: string) => (imageId ? `${IMG}/${size}/${imageId}.jpg` : null);

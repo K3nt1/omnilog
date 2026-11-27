@@ -2,16 +2,9 @@
 // Backloggd reprend les slugs d'IGDB (sa page de jeu renvoie vers igdb.com/games/<slug>) : la correspondance est sûre.
 import { CURRENT_USER_ID, findImportLinks, upsertMediaStatement } from "../library";
 import { SourceError } from "../sources/http";
-import { getIgdbGamesBySlugs } from "../sources/igdb";
+import { findIgdbGamesByTitles, getIgdbGamesBySlugs, normalizeGameTitle } from "../sources/igdb";
 import { storedStatus, type MediaDetails } from "../types";
 import type { BackloggdGame, ImportItemResult } from "./types";
-
-const normalize = (title: string) =>
-  title
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
 
 /** Clé d'une session au journal : un import relancé ne la duplique pas (deux sessions le même jour : :0, :1…). */
 export function sessionRefs(game: Pick<BackloggdGame, "slug" | "sessions">): string[] {
@@ -49,13 +42,34 @@ export async function importBackloggdBatch(env: CloudflareEnv, items: BackloggdG
       lookup = { bySlug: new Map(), byId: new Map() };
     }
     const matched: { item: BackloggdGame; details: MediaDetails }[] = [];
+    const missing: BackloggdGame[] = [];
     for (const item of unknown) {
       if (results.has(item.key)) continue;
       const byId = item.gameId ? lookup.byId.get(String(item.gameId)) : undefined;
       // L'identifiant Backloggd n'est retenu que s'il désigne bien le même jeu chez IGDB.
-      const details = lookup.bySlug.get(item.slug) ?? (byId && normalize(byId.title) === normalize(item.title) ? byId : undefined);
+      const details = lookup.bySlug.get(item.slug) ?? (byId && normalizeGameTitle(byId.title) === normalizeGameTitle(item.title) ? byId : undefined);
       if (details) matched.push({ item, details });
-      else results.set(item.key, { key: item.key, label: item.title, status: "not_found", message: "Introuvable chez IGDB : ajoute-le via la recherche." });
+      else missing.push(item);
+    }
+    // Deuxième chance : slug changé chez IGDB depuis l'ajout sur Backloggd → recherche par titre identique.
+    let byTitle = new Map<string, MediaDetails>();
+    if (missing.length > 0) {
+      try {
+        byTitle = await findIgdbGamesByTitles(env, missing.map((i) => i.title));
+      } catch (error) {
+        console.error("Recherche IGDB par titre en échec", error);
+      }
+    }
+    for (const item of missing) {
+      const details = byTitle.get(item.title.trim());
+      if (details) matched.push({ item, details });
+      else
+        results.set(item.key, {
+          key: item.key,
+          label: item.title,
+          status: "not_found",
+          message: "Introuvable chez IGDB : colle son lien Backloggd dans la recherche.",
+        });
     }
     if (matched.length > 0) {
       // Un jeu déjà au catalogue garde sa fiche complète (durée de vie…).
