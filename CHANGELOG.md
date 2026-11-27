@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/K3nt1/omnilog/compare/v0.13.1...v0.13.2) (2026-11-27)
+
+
+### 🐛 Corrections
+
+* **import:** jeux Backloggd introuvables et molette « où j'en suis » ([#127](https://github.com/K3nt1/omnilog/issues/127)) ([17815fb](https://github.com/K3nt1/omnilog/commit/17815fb744c802743a9ac58da4b5fb1b5612d6a4))
+
 ## [0.13.1](https://github.com/K3nt1/omnilog/compare/v0.13.0...v0.13.1) (2026-11-26)
 
 
