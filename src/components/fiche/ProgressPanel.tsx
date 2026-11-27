@@ -6,6 +6,7 @@ import { clockLabel, durationLabel, issueLabel, positionLine, statusLabel } from
 import type { MediaType, SeasonInfo } from "@/lib/types";
 import { useAction } from "../useAction";
 import { DateInput, datedBody } from "./DateInput";
+import { PositionWheels } from "./PositionWheels";
 
 /** « 1:12:30 », « 72:30 » ou « 45 » (minutes) → secondes ; null si illisible. */
 export function parseClock(value: string): number | null {
@@ -44,10 +45,6 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState(false);
   const regular = seasons.filter((s) => s.seasonNumber > 0 && s.episodeCount > 0);
-  const [season, setSeason] = useState(entry.currentSeason ?? regular[0]?.seasonNumber ?? 1);
-  const [episode, setEpisode] = useState(entry.currentEpisode ?? 1);
-  const [chapter, setChapter] = useState(entry.currentChapter ?? 1);
-  const [volume, setVolume] = useState(entry.currentVolume ?? 1);
   // « Cocher un tome entier » : un tome précis (par défaut le tome en cours).
   const [checkVolume, setCheckVolume] = useState(String(entry.currentVolume ?? 1));
 
@@ -179,74 +176,18 @@ export function ProgressPanel({ entry, type, seasons, totalEpisodes, totalChapte
       )}
 
       {!done && editing && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          {type === "tv" && (
-            <>
-              <label className="flex items-center gap-1">
-                Saison
-                <select value={season} onChange={(e) => { setSeason(Number(e.target.value)); setEpisode(1); }} className={field}>
-                  {(regular.length > 0 ? regular : [{ seasonNumber: season, episodeCount: 99 } as SeasonInfo]).map((s) => (
-                    <option key={s.seasonNumber} value={s.seasonNumber}>
-                      {s.seasonNumber}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-1">
-                Épisode
-                <select value={episode} onChange={(e) => setEpisode(Number(e.target.value))} className={field}>
-                  {Array.from({ length: regular.find((s) => s.seasonNumber === season)?.episodeCount ?? 99 }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-          {type === "anime" && (
-            <label className="flex items-center gap-1">
-              Épisode
-              <input type="number" min={1} max={totalEpisodes ?? undefined} value={episode} onChange={(e) => setEpisode(Number(e.target.value))} className={`${field} w-24`} />
-            </label>
-          )}
-          {type === "manga" && (
-            <>
-              <label className="flex items-center gap-1">
-                Tome
-                <input type="number" min={1} max={totalVolumes ?? undefined} value={volume} onChange={(e) => setVolume(Number(e.target.value))} className={`${field} w-20`} />
-              </label>
-              <label className="flex items-center gap-1">
-                Chapitre
-                <input type="number" min={0} step="any" value={chapter} onChange={(e) => setChapter(Number(e.target.value))} className={`${field} w-28`} />
-              </label>
-            </>
-          )}
-          {type === "comic" && (
-            <label className="flex items-center gap-1">
-              Numéro
-              <input type="number" min={0} step="any" value={chapter} onChange={(e) => setChapter(Number(e.target.value))} className={`${field} w-28`} />
-            </label>
-          )}
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={async () => {
-              const ok = await act("position", {
-                kind: "position",
-                season,
-                episode,
-                chapter,
-                ...(type === "manga" && volume >= 1 ? { volume: Math.floor(volume) } : {}),
-              });
-              if (ok) setEditing(false);
-            }}
-            className={secondary}
-          >
-            Reprendre ici
-          </button>
-          <span className="text-xs text-white/50">Rien n&apos;est ajouté au journal : c&apos;est juste l&apos;endroit où tu en es.</span>
-        </div>
+        <PositionWheels
+          entry={entry}
+          type={type}
+          seasons={regular}
+          totalEpisodes={totalEpisodes}
+          totalChapters={totalChapters}
+          totalVolumes={totalVolumes}
+          busy={busy !== null}
+          onSave={async (position) => {
+            if (await act("position", { kind: "position", ...position })) setEditing(false);
+          }}
+        />
       )}
 
       {/* Pause : film / épisode (minutage) ou page (manga, comic). */}

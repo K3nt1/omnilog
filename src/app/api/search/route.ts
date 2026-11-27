@@ -7,7 +7,7 @@ import { searchAll } from "@/lib/sources";
 import { isMediaType, MEDIA_TYPES, type MediaType } from "@/lib/types";
 
 const MIN_LENGTH = 2;
-const MAX_LENGTH = 100;
+const MAX_LENGTH = 200; // un lien de jeu Backloggd / IGDB collé peut être long
 
 function parseTypes(raw: string | null): Set<MediaType> {
   if (!raw) return new Set(MEDIA_TYPES);
