@@ -3,7 +3,7 @@
 import { normalizeSearch } from "../search-text";
 import { COMICVINE_MIN_QUERY_LENGTH, getComicVineDetails, searchComicVine } from "./comicvine";
 import { SourceError } from "./http";
-import { getIgdbDetails, searchIgdb } from "./igdb";
+import { gameSlugFromLink, getIgdbDetails, searchIgdb, searchIgdbLink } from "./igdb";
 import { getMalDetails, MAL_MIN_QUERY_LENGTH, searchMal } from "./mal";
 import { getTmdbDetails, searchTmdb } from "./tmdb";
 import type { MediaDetails, MediaSource, MediaType, SearchResponse, SearchResult } from "../types";
@@ -11,18 +11,25 @@ import type { MediaDetails, MediaSource, MediaType, SearchResponse, SearchResult
 export async function searchAll(env: CloudflareEnv, query: string, types: Set<MediaType>, adult = false): Promise<SearchResponse> {
   const tasks: { source: MediaSource; run: () => Promise<SearchResult[]> }[] = [];
 
-  if (types.has("movie") || types.has("tv")) {
-    tasks.push({ source: "tmdb", run: () => searchTmdb(env.TMDB_API_TOKEN, query, types) });
+  // Lien de jeu Backloggd / IGDB collé : ce jeu-là seulement (les autres sources n'ont rien à y chercher).
+  const slug = gameSlugFromLink(query);
+  if (slug) {
+    tasks.push({ source: "igdb", run: () => searchIgdbLink(env, slug) });
   }
-  if (types.has("game")) {
+  const wanted: Set<MediaType> = slug ? new Set() : types;
+
+  if (wanted.has("movie") || wanted.has("tv")) {
+    tasks.push({ source: "tmdb", run: () => searchTmdb(env.TMDB_API_TOKEN, query, wanted) });
+  }
+  if (wanted.has("game")) {
     tasks.push({ source: "igdb", run: () => searchIgdb(env, query) });
   }
-  if (types.has("comic") && query.length >= COMICVINE_MIN_QUERY_LENGTH) {
+  if (wanted.has("comic") && query.length >= COMICVINE_MIN_QUERY_LENGTH) {
     tasks.push({ source: "comicvine", run: () => searchComicVine(env, query) });
   }
   if (query.length >= MAL_MIN_QUERY_LENGTH) {
-    if (types.has("anime")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "anime", query, adult) });
-    if (types.has("manga")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "manga", query, adult) });
+    if (wanted.has("anime")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "anime", query, adult) });
+    if (wanted.has("manga")) tasks.push({ source: "mal", run: () => searchMal(env.MAL_CLIENT_ID, "manga", query, adult) });
   }
 
   // allSettled : si une source tombe en panne, les autres résultats s'affichent quand même.
