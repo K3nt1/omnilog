@@ -4,7 +4,7 @@ import { CURRENT_USER_ID, statusesByExternalId } from "./library";
 import { parseRelease, type ReleaseInfo } from "./release-shared";
 import { cachedVersioned } from "./data-version";
 import { seasonReviewsStatement, toSeasonReviewLine, type SeasonReviewLine, type SeasonReviewRow } from "./season-reviews";
-import { GAME_ONLY_STATUSES, SOURCE_FOR_TYPE, storedStatus, type LibraryStatus, type MediaType } from "./types";
+import { GAME_ONLY_STATUSES, SOURCE_FOR_TYPE, sourceOf, storedStatus, type LibraryStatus, type MediaType } from "./types";
 
 export interface StoredMedia {
   id: number;
@@ -20,6 +20,10 @@ export interface StoredMedia {
   totalVolumes: number | null;
   isOngoing: boolean;
   genres: string[];
+  /** Jeu ajouté à la main : plateformes saisies. */
+  platforms: string[];
+  /** « year » : seule l'année de sortie est connue (œuvre ajoutée à la main). */
+  releasePrecision: string | null;
   publisherFr: string | null;
   /** Liens enregistrés à l'import (Letterboxd…), prioritaires sur les liens construits. */
   externalLinks: Record<string, string>;
@@ -153,6 +157,9 @@ interface JournalRow {
   undated: number;
 }
 
+/** Liste de textes d'un JSON enregistré (tout autre contenu est ignoré). */
+const stringList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
+
 const parseJson = <T,>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
   try {
@@ -180,7 +187,7 @@ export function getKnownTags(db: D1Database, tagsVersion: number): Promise<strin
 
 /** Tout ce que la base sait d'une œuvre, en un seul aller-retour (3 requêtes). */
 export async function getStoredFiche(db: D1Database, type: MediaType, externalId: string): Promise<StoredFiche> {
-  const source = SOURCE_FOR_TYPE[type];
+  const source = sourceOf(type, externalId);
   const [mediaRows, journalRows, userRows, seasonRows] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
@@ -229,6 +236,8 @@ export async function getStoredFiche(db: D1Database, type: MediaType, externalId
         totalVolumes: row.total_volumes,
         isOngoing: row.is_ongoing === 1,
         genres: parseJson<{ genres?: string[] }>(row.extra_json, {}).genres ?? [],
+        platforms: stringList(parseJson<{ platforms?: unknown }>(row.extra_json, {}).platforms),
+        releasePrecision: parseJson<{ releasePrecision?: string | null }>(row.extra_json, {}).releasePrecision ?? null,
         publisherFr: row.publisher_fr ?? null,
         externalLinks: parseJson<Record<string, string>>(row.external_links_json, {}),
         release: parseRelease(row.release_json),

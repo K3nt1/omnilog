@@ -41,6 +41,13 @@ function searchUrl(q: string, types: string, genre: string | null): string {
   return `/recherche?${params}`;
 }
 
+/** Formulaire d'ajout à la main, prérempli avec la recherche (et le type s'il n'y en a qu'un de coché). */
+function manualHref(title: string, types: Set<MediaType>): string {
+  const params = new URLSearchParams({ titre: title.slice(0, 200) });
+  if (types.size === 1) params.set("type", [...types][0]);
+  return `/ajouter?${params}`;
+}
+
 function parseTypes(value: string | null): Set<MediaType> {
   const types = (value ?? "").split(",").filter((t): t is MediaType => (MEDIA_TYPES as readonly string[]).includes(t));
   return new Set(types.length > 0 ? types : MEDIA_TYPES);
@@ -231,6 +238,15 @@ function SearchPage() {
       {active && data && !loading && data.results.length === 0 && (
         <p className="mt-6 text-white/60">
           Aucun résultat.{trimmed.length < 3 && " Les animes et mangas demandent au moins 3 caractères."}
+        </p>
+      )}
+      {active && data && !loading && (
+        <p className="mt-6 text-sm text-white/60">
+          Introuvable ?{" "}
+          <Link href={manualHref(trimmed, types)} className="text-sky-300 hover:underline">
+            Ajouter « {trimmed} » à la main
+          </Link>
+          {types.has("game") && " · ou colle le lien Backloggd / IGDB du jeu dans la recherche"}
         </p>
       )}
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SearchResult } from "@/lib/types";
 import type { MediaType } from "@/lib/types";
+import { ManualForm, type ManualValues } from "../ManualForm";
 import { DaysPicker } from "../settings/RemindersEditor";
 import { useAction } from "../useAction";
 
@@ -26,34 +27,46 @@ interface Props {
   journalCount: number;
   sourcePoster: string | null;
   sourceBackdrop: string | null;
+  /** Œuvre ajoutée à la main : ses infos, modifiables (à la place de « Rafraîchir » et des images de la source). */
+  manual?: ManualValues | null;
 }
 
 /** Actions secondaires de la fiche : rafraîchir, images perso, « Ce n'est pas la bonne œuvre », retirer. */
-export function FicheActions({ type, slug, externalId, title, entry, journalCount, sourcePoster, sourceBackdrop }: Props) {
+export function FicheActions({ type, slug, externalId, title, entry, journalCount, sourcePoster, sourceBackdrop, manual = null }: Props) {
   const router = useRouter();
   const { run, busy, error } = useAction();
-  const [dialog, setDialog] = useState<"images" | "rematch" | "reminder" | null>(null);
+  const [dialog, setDialog] = useState<"images" | "rematch" | "reminder" | "edit" | null>(null);
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => run("refresh", `/api/fiche/${slug}/${externalId}/refresh`, {})}
-          className={button}
-          title="Relire titres, affiche, épisodes, saisons et diffusion chez la source"
-        >
-          {busy === "refresh" ? "Rafraîchissement…" : "↻ Rafraîchir les infos"}
-        </button>
+        {manual ? (
+          entry && (
+            <button type="button" onClick={() => setDialog("edit")} className={button}>
+              ✎ Modifier la fiche
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => run("refresh", `/api/fiche/${slug}/${externalId}/refresh`, {})}
+            className={button}
+            title="Relire titres, affiche, épisodes, saisons et diffusion chez la source"
+          >
+            {busy === "refresh" ? "Rafraîchissement…" : "↻ Rafraîchir les infos"}
+          </button>
+        )}
         {entry && (
           <>
             <button type="button" onClick={() => setDialog("reminder")} className={button}>
               ⏰ Rappel
             </button>
-            <button type="button" onClick={() => setDialog("images")} className={button}>
-              🖼 Affiche et fond
-            </button>
+            {!manual && (
+              <button type="button" onClick={() => setDialog("images")} className={button}>
+                🖼 Affiche et fond
+              </button>
+            )}
             <button type="button" onClick={() => setDialog("rematch")} className={button}>
               Ce n&apos;est pas la bonne œuvre
             </button>
@@ -83,6 +96,22 @@ export function FicheActions({ type, slug, externalId, title, entry, journalCoun
           sourceBackdrop={sourceBackdrop}
           onClose={() => setDialog(null)}
         />
+      )}
+      {dialog === "edit" && entry && manual && (
+        <Modal title="Modifier la fiche" onClose={() => setDialog(null)}>
+          <ManualForm
+            initialType={type}
+            lockType
+            initial={manual}
+            submitLabel="Enregistrer"
+            busy={busy === "edit"}
+            error={error}
+            onSubmit={async (body) => {
+              if (await run("edit", `/api/manuel/${slug}/${externalId}`, body, "PATCH")) setDialog(null);
+            }}
+            onCancel={() => setDialog(null)}
+          />
+        </Modal>
       )}
       {dialog === "reminder" && entry && <ReminderDialog entryId={entry.id} title={title} onClose={() => setDialog(null)} />}
       {dialog === "rematch" && entry && (

@@ -104,6 +104,16 @@ export interface BackloggdGame {
   rating: number | null; // 1 à 10 (demi-étoiles)
   mastered: boolean;
   sessions: BackloggdSession[];
+  /** Jaquette affichée par Backloggd (https), pour un jeu qu'IGDB ne fournit plus. Absente des anciens exports. */
+  cover?: string | null;
+}
+
+/** Jeu IGDB proposé pour un jeu Backloggd introuvable (« C'est celui-ci »). */
+export interface GameCandidate {
+  externalId: string;
+  title: string;
+  year: number | null;
+  posterUrl: string | null;
 }
 
 export type ImportRequest =
@@ -131,6 +141,11 @@ export interface ImportItemResult {
   status: ImportItemStatus;
   message?: string;
   candidates?: MatchCandidate[];
+  /** Backloggd : jeu absent d'IGDB, ajouté à la main (fiche `ficheId`), et jeux IGDB proches pour le remplacer. */
+  manual?: boolean;
+  entryId?: number;
+  ficheId?: string;
+  gameCandidates?: GameCandidate[];
   /** Fiche TMDB retenue (ou en conflit). */
   tmdbId?: string;
   tmdbType?: "movie" | "tv";

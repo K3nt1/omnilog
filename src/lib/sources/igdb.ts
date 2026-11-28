@@ -230,9 +230,15 @@ interface IgdbNamedGame extends IgdbGame {
  * Deuxième chance pour les jeux introuvables par slug (slug changé chez IGDB depuis l'ajout sur Backloggd) :
  * recherche par titre, versions et DLC compris, 10 titres par requête (multiquery IGDB).
  * Seul un titre identique (nom ou nom alternatif, sans accents ni ponctuation) est retenu : jamais de jeu « approchant ».
+ * Les autres titres reçoivent jusqu'à 3 jeux proches, à proposer (jamais reliés d'office).
  */
-export async function findIgdbGamesByTitles(env: IgdbCredentials, titles: string[]): Promise<Map<string, MediaDetails>> {
+export async function findIgdbGamesByTitles(
+  env: IgdbCredentials,
+  titles: string[],
+): Promise<{ found: Map<string, MediaDetails>; candidates: Map<string, MediaDetails[]> }> {
   const found = new Map<string, MediaDetails>();
+  /** Jeux proches (3 au plus) pour les titres sans correspondance exacte : « C'est celui-ci ». */
+  const candidates = new Map<string, MediaDetails[]>();
   const unique = [...new Set(titles.map((t) => t.trim()).filter((t) => t.length > 0 && t.length <= 200))];
   const none = { hastily: null, normally: null, completely: null };
   for (let start = 0; start < unique.length; start += 10) {
@@ -249,9 +255,10 @@ export async function findIgdbGamesByTitles(env: IgdbCredentials, titles: string
         (g) => normalizeGameTitle(g.name) === wanted || (g.alternative_names ?? []).some((a) => normalizeGameTitle(a.name) === wanted),
       );
       if (match) found.set(title, gameDetails(match, none));
+      else if (answer.result.length > 0) candidates.set(title, answer.result.slice(0, 3).map((g) => gameDetails(g, none)));
     }
   }
-  return found;
+  return { found, candidates };
 }
 
 /** Slug d'un lien de jeu Backloggd ou IGDB collé dans la recherche (« backloggd.com/games/hades/ »), sinon null. */

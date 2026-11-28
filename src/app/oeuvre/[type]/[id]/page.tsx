@@ -28,7 +28,8 @@ import { ReleaseText } from "@/components/ReleaseText";
 import { refreshRelease } from "@/lib/release";
 import { displayRelease } from "@/lib/release-shared";
 import { SourceError } from "@/lib/sources/http";
-import { SOURCE_FOR_TYPE, yearOf, type MediaType } from "@/lib/types";
+import { isFicheId, isManualId, sourceOf, yearOf, type MediaType } from "@/lib/types";
+import { manualSeasons } from "@/lib/manual";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +41,16 @@ const REGION_NAMES: Record<string, string> = { CY: "Chypre", FR: "France", BE: "
 
 async function load(slug: string, id: string) {
   const type = typeFromSlug(slug);
-  if (!type || !/^\d{1,12}$/.test(id)) return null;
+  if (!type || !isFicheId(id)) return null;
   const { env } = getCloudflareContext();
   const stored = await getStoredFiche(env.DB, type, id);
+  // Œuvre ajoutée à la main : aucune source à interroger, la fiche vient de la base.
+  if (isManualId(id)) {
+    if (!stored.media) return null;
+    const seasons = type === "tv" ? await manualSeasons(env.DB, stored.media.id) : [];
+    const fiche = ficheFromStore(type, id, stored.media, seasons);
+    return { type, stored, fiche, sourceError: null, statuses: new Map(), release: null, manual: true };
+  }
   let fiche: MediaFiche | null = null;
   let sourceError: string | null = null;
   try {
@@ -52,7 +60,7 @@ async function load(slug: string, id: string) {
     sourceError = error instanceof SourceError ? error.message : `${SOURCE_NAME[type]} : erreur inattendue`;
     console.error("Fiche en échec", type, id, error);
   }
-  if (!fiche && !stored.media) return { type, stored, fiche: null, sourceError, statuses: new Map(), release: null };
+  if (!fiche && !stored.media) return { type, stored, fiche: null, sourceError, statuses: new Map(), release: null, manual: false };
   const related = fiche?.related.flatMap((g) => g.works) ?? [];
   // Prochaine sortie : mise à jour en base pour une œuvre enregistrée (vignettes, bandeau), sinon celle de la source.
   const [statuses, release] = await Promise.all([
@@ -61,23 +69,23 @@ async function load(slug: string, id: string) {
       ? refreshRelease(env, type, { ...stored.media, externalId: id }, fiche)
       : Promise.resolve(fiche?.nextRelease ?? displayRelease(stored.media?.release)),
   ]);
-  return { type, stored, fiche, sourceError, statuses, release };
+  return { type, stored, fiche, sourceError, statuses, release, manual: false };
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { type: slug, id } = await params;
   const type = typeFromSlug(slug);
-  if (!type || !/^\d{1,12}$/.test(id)) return { title: "Introuvable" };
+  if (!type || !isFicheId(id)) return { title: "Introuvable" };
   const { env } = getCloudflareContext();
   // Avec la source : la requête utilise l'index unique (type, source, external_id) et ne lit qu'une ligne.
   const { results } = await env.DB.prepare("SELECT title FROM media WHERE type = ? AND source = ? AND external_id = ?")
-    .bind(type, SOURCE_FOR_TYPE[type], id)
+    .bind(type, sourceOf(type, id), id)
     .all<{ title: string }>();
   return { title: results[0]?.title ?? TYPE_SINGULAR[type] };
 }
 
 /** Fiche minimale à partir de la base quand la source ne répond pas. */
-function ficheFromStore(type: MediaType, externalId: string, m: StoredMedia): MediaFiche {
+function ficheFromStore(type: MediaType, externalId: string, m: StoredMedia, seasons: MediaFiche["seasons"] = []): MediaFiche {
   return {
     type,
     externalId,
@@ -97,8 +105,8 @@ function ficheFromStore(type: MediaType, externalId: string, m: StoredMedia): Me
     genres: m.genres,
     credits: [],
     cast: [],
-    seasons: [],
-    platforms: [],
+    seasons,
+    platforms: m.platforms,
     timeToBeat: null,
     nextEpisode: null,
     nextRelease: null,
@@ -217,7 +225,7 @@ export default async function FichePage({ params }: Props) {
   const { type: slug, id } = await params;
   const data = await load(slug, id);
   if (!data) notFound();
-  const { type, stored, sourceError, statuses, release } = data;
+  const { type, stored, sourceError, statuses, release, manual } = data;
 
   if (!data.fiche && !stored.media) {
     return (
@@ -233,6 +241,8 @@ export default async function FichePage({ params }: Props) {
   const poster = entry?.customPosterUrl ?? stored.media?.posterUrl ?? f.posterUrl;
   const backdrop = entry?.customBackdropUrl ?? f.backdropUrl ?? stored.media?.backdropUrl;
   const year = yearOf(f.releaseDate);
+  // Année seule connue (œuvre ajoutée à la main, jeu à date vague) : jamais affichée comme un 1er janvier.
+  const releaseText = f.releaseDate && stored.media?.releasePrecision === "year" ? f.releaseDate.slice(0, 4) : f.releaseDate ? dateLabel(f.releaseDate) : null;
   const duration = durationLine(f);
   const toReview = type === "tv" && entry ? seasonToReview(stored.journal, stored.seasonReviews, f.seasons) : null;
   const seasonNames = Object.fromEntries(f.seasons.map((s) => [s.seasonNumber, s.name]));
@@ -278,6 +288,7 @@ export default async function FichePage({ params }: Props) {
                   {TYPE_LABELS[type]}
                 </Link>
                 {entry?.isFocus && (entry.drawnAt ? " · 🎲 Tiré au sort" : " · 🎯 En ce moment")}
+                {manual && " · ✎ Ajoutée à la main"}
               </p>
               <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{f.title}</h1>
               {f.originalTitle && <p className="mt-1 text-lg text-white/60">{f.originalTitle}</p>}
@@ -353,6 +364,22 @@ export default async function FichePage({ params }: Props) {
                 journalCount={stored.journal.length + stored.seasonReviews.length}
                 sourcePoster={f.posterUrl ?? stored.media.posterUrl}
                 sourceBackdrop={f.backdropUrl ?? stored.media.backdropUrl}
+                manual={
+                  manual
+                    ? {
+                        title: f.title,
+                        release: f.releaseDate ? (stored.media.releasePrecision === "year" ? f.releaseDate.slice(0, 4) : f.releaseDate) : "",
+                        posterUrl: stored.media.posterUrl ?? "",
+                        overview: f.overview ?? "",
+                        runtimeMinutes: f.runtimeMinutes,
+                        totalEpisodes: f.totalEpisodes,
+                        seasons: f.seasons.map((s) => s.episodeCount),
+                        totalChapters: f.totalChapters,
+                        totalVolumes: f.totalVolumes,
+                        platforms: f.platforms,
+                      }
+                    : null
+                }
               />
             )}
           </div>
@@ -454,7 +481,7 @@ export default async function FichePage({ params }: Props) {
               {f.releaseDate && (
                 <div>
                   <dt className="text-white/50">{f.releaseLabel}</dt>
-                  <dd>{dateLabel(f.releaseDate)}</dd>
+                  <dd>{releaseText}</dd>
                 </div>
               )}
               {f.credits.map((c) => (
@@ -520,13 +547,13 @@ export default async function FichePage({ params }: Props) {
           </Section>
         )}
 
-        {f.seasons.length > 0 && (
+        {f.seasons.length > 0 && !manual && (
           <Section title="Saisons et épisodes">
             <SeasonList tmdbId={id} seasons={f.seasons} entryId={entry?.id ?? null} reviews={stored.seasonReviews} />
           </Section>
         )}
 
-        {type === "comic" && (
+        {type === "comic" && !manual && (
           <Section title="Numéros">
             <IssueList
               comicId={id}

@@ -3,7 +3,7 @@
 export const MEDIA_TYPES = ["movie", "tv", "anime", "manga", "game", "comic"] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
 
-export const MEDIA_SOURCES = ["tmdb", "igdb", "mal", "comicvine"] as const;
+export const MEDIA_SOURCES = ["tmdb", "igdb", "mal", "comicvine", "manual"] as const;
 export type MediaSource = (typeof MEDIA_SOURCES)[number];
 
 export const LIBRARY_STATUSES = ["planned", "in_progress", "on_hold", "completed", "dropped", "played", "wishlist"] as const;
@@ -35,6 +35,21 @@ export const SOURCE_FOR_TYPE: Record<MediaType, MediaSource> = {
   game: "igdb",
   comic: "comicvine",
 };
+
+/** Œuvre ajoutée à la main (absente de sa source) : identifiant « m » suivi de chiffres, ex. « m173282018841 ». */
+export function isManualId(externalId: string): boolean {
+  return /^m\d{6,20}$/.test(externalId);
+}
+
+/** Identifiant accepté dans une adresse de fiche : celui de la source, ou d'une œuvre ajoutée à la main. */
+export function isFicheId(externalId: string): boolean {
+  return /^\d{1,12}$/.test(externalId) || isManualId(externalId);
+}
+
+/** Source d'une œuvre d'après son type et son identifiant (« manual » pour une œuvre ajoutée à la main). */
+export function sourceOf(type: MediaType, externalId: string): MediaSource {
+  return isManualId(externalId) ? "manual" : SOURCE_FOR_TYPE[type];
+}
 
 /** Résultat de recherche, identique quelle que soit la source. */
 export interface SearchResult {
