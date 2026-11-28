@@ -1,5 +1,6 @@
 // Filtres de la bibliothèque <-> adresse de la page (?statut=…&tri=…), pour pouvoir mettre une vue en favori.
 // Utilisable côté serveur comme côté navigateur (aucun accès à la base).
+import { isOwnedKey } from "./ownership-shared";
 import {
   BUILTIN_SORT,
   directionFor,
@@ -22,6 +23,9 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
  * Lit les filtres depuis l'adresse. `fixedType` = type imposé par la page (/films/liste).
  * `defaults` = tris par défaut des réglages : celui du type affiché (ou « all ») s'applique sans « tri » dans l'adresse.
  */
+/** « Possédé sur » venu de l'adresse : seulement une valeur connue. */
+const ownedParam = (value: string | undefined): string | null => (value && value.length <= 70 && isOwnedKey(value) ? value : null);
+
 export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType | null = null, defaults: DefaultSorts = {}): LibraryQuery {
   const type = fixedType ?? typeFromSlug(first(params.type));
   const sortParam = first(params.tri);
@@ -55,6 +59,7 @@ export function parseLibraryQuery(params: RawSearchParams, fixedType: MediaType 
     withReview: first(params.critique) === "1",
     tag: first(params.tag)?.slice(0, 60) || null,
     platform: type === "game" ? first(params.plateforme)?.slice(0, 40) || null : null,
+    owned: type === "game" ? ownedParam(first(params.possede)) : null,
     search: (first(params.q) ?? "").slice(0, 100),
     sort,
     direction: order === "asc" || order === "desc" ? order : directionFor(sort, defaultSort),
@@ -84,6 +89,7 @@ export function libraryHref(basePath: string, q: LibraryQuery, change: Partial<L
   if (next.withReview) params.set("critique", "1");
   if (next.tag) params.set("tag", next.tag);
   if (next.platform && next.type === "game") params.set("plateforme", next.platform);
+  if (next.owned && next.type === "game") params.set("possede", next.owned);
   if (next.search.trim()) params.set("q", next.search.trim());
   if (next.sort !== fallback.sort) params.set("tri", next.sort);
   if (next.direction !== directionFor(next.sort, fallback)) params.set("ordre", next.direction);
@@ -105,6 +111,7 @@ export function hasFilters(q: LibraryQuery, fixedType = false): boolean {
       q.withReview ||
       q.tag ||
       q.platform ||
+      q.owned ||
       q.search.trim() ||
       (!fixedType && q.type),
   );

@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { VIEW_COOKIE, type LibraryCard, type PosterSize, type SortKey, type ViewPrefs } from "@/lib/browse-shared";
 import { sortDetail, STATUS_ORDER, statusLabel } from "@/lib/labels";
 import { statusesFor, type LibraryStatus, type MediaType } from "@/lib/types";
+import { DEVICES, EMULATORS, isComputer, LAUNCHERS, subscriptionsFor, SUBSCRIPTIONS, type Ownership } from "@/lib/ownership-shared";
 import { MediaCard } from "./MediaCard";
 import { MediaRow } from "./MediaRow";
 import { useAction } from "./useAction";
@@ -36,6 +37,7 @@ export function LibraryResults({ cards, prefs, showType, sort, type }: Props) {
   const { run, busy, error } = useAction();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [owning, setOwning] = useState(false);
 
   // L'affichage est mémorisé dans un cookie (un an), relu par la page côté serveur (taille de page).
   function setPrefs(next: Partial<ViewPrefs>) {
@@ -188,9 +190,140 @@ export function LibraryResults({ cards, prefs, showType, sort, type }: Props) {
           >
             {busy === "unfav" ? "…" : "♡ Retirer des favoris"}
           </button>
+          {type === "game" && (
+            <button type="button" disabled={selected.size === 0 || busy !== null} onClick={() => setOwning((o) => !o)} className={`${button} disabled:opacity-50`}>
+              🎮 Possédé sur…
+            </button>
+          )}
+          {type === "game" && owning && selected.size > 0 && (
+            <BulkOwnership
+              busy={busy !== null}
+              onAdd={async (add) => {
+                if (await run("own", "/api/library/possession", { entryIds: [...selected], add })) {
+                  setOwning(false);
+                  stop();
+                }
+              }}
+              onRemove={async (platform) => {
+                if (await run("own", "/api/library/possession", { entryIds: [...selected], removePlatform: platform })) {
+                  setOwning(false);
+                  stop();
+                }
+              }}
+            />
+          )}
           {error && <p className="w-full text-sm text-rose-400">{error}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Saisie en masse : « possédé sur » pour tous les jeux sélectionnés (ou retirer une plateforme). */
+function BulkOwnership({
+  busy,
+  onAdd,
+  onRemove,
+}: {
+  busy: boolean;
+  onAdd: (add: Ownership) => void;
+  onRemove: (platform: string) => void;
+}) {
+  const [known, setKnown] = useState<string[]>([]);
+  const [platform, setPlatform] = useState("");
+  const [format, setFormat] = useState<Ownership["format"]>("digital");
+  const [store, setStore] = useState("steam");
+  const [subscription, setSubscription] = useState("");
+  const [device, setDevice] = useState("");
+  const [emulator, setEmulator] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/manuel/plateformes")
+      .then((res) => res.json() as Promise<{ platforms?: string[] }>)
+      .then((json) => {
+        if (!cancelled) setKnown(json.platforms ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const p = platform.trim();
+  const computer = isComputer(p);
+  const subs = format === "digital" ? subscriptionsFor(p, computer ? store : null) : [];
+  const select = "rounded-lg border border-white/15 bg-neutral-900 px-3 py-1.5 text-sm";
+  const build = (): Ownership => ({
+    platform: p,
+    format,
+    store: computer && format === "digital" ? store : null,
+    subscription: subs.includes(subscription) ? subscription : null,
+    device: format === "emulated" ? device.trim() || null : null,
+    emulator: format === "emulated" ? emulator.trim() || null : null,
+  });
+
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2 border-t border-white/10 pt-2">
+      <input list="omnilog-masse-plateformes" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="Plateforme (PS5, PC…)" aria-label="Plateforme" className={select} />
+      <datalist id="omnilog-masse-plateformes">
+        {known.map((k) => (
+          <option key={k} value={k} />
+        ))}
+      </datalist>
+      <select value={format} onChange={(e) => setFormat(e.target.value as Ownership["format"])} aria-label="Format" className={select}>
+        <option value="digital">{computer ? "Launcher" : "Dématérialisé"}</option>
+        <option value="physical">{computer ? "Boîte" : "Physique"}</option>
+        <option value="emulated">Émulateur</option>
+      </select>
+      {computer && format === "digital" && (
+        <select value={store} onChange={(e) => setStore(e.target.value)} aria-label="Launcher" className={select}>
+          {Object.entries(LAUNCHERS).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      )}
+      {subs.length > 0 && (
+        <select value={subscription} onChange={(e) => setSubscription(e.target.value)} aria-label="Abonnement" className={select}>
+          <option value="">Acheté (ou offert)</option>
+          {subs.map((sub) => (
+            <option key={sub} value={sub}>
+              Via {SUBSCRIPTIONS[sub]}
+            </option>
+          ))}
+        </select>
+      )}
+      {format === "emulated" && (
+        <>
+          <input list="omnilog-masse-appareils" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="Appareil" aria-label="Appareil" className={select} />
+          <datalist id="omnilog-masse-appareils">
+            {DEVICES.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
+          <input list="omnilog-masse-emulateurs" value={emulator} onChange={(e) => setEmulator(e.target.value)} placeholder="Émulateur" aria-label="Émulateur" className={select} />
+          <datalist id="omnilog-masse-emulateurs">
+            {EMULATORS.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
+        </>
+      )}
+      <button type="button" disabled={!p || busy} onClick={() => onAdd(build())} className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50">
+        Ajouter
+      </button>
+      <button
+        type="button"
+        disabled={!p || busy}
+        onClick={() => {
+          if (confirm(`Retirer ${p} (tous formats) des jeux sélectionnés ?`)) onRemove(p);
+        }}
+        className="rounded-lg px-3 py-1.5 text-sm text-white/60 hover:text-rose-300 disabled:opacity-50"
+      >
+        Retirer {p || "la plateforme"}
+      </button>
     </div>
   );
 }

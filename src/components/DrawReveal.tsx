@@ -27,7 +27,7 @@ function delays(count: number): number[] {
  * Tirage au sort avec animation : les affiches de la liste défilent puis ralentissent sur l'œuvre tirée.
  * Sans animation si l'appareil demande moins de mouvements. Renvoie le bouton à brancher et l'écran du tirage.
  */
-export function useDraw(type: string) {
+export function useDraw(type: string, owned: string | null = null) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +48,7 @@ export function useDraw(type: string) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/draw", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) });
+      const res = await fetch("/api/draw", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, owned }) });
       const json = (await res.json().catch(() => ({}))) as DrawResponse;
       if (!res.ok) throw new Error(json.error ?? "Tirage impossible.");
       const picked = json.picked ?? { title: "", posterUrl: null };
