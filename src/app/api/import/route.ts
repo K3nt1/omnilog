@@ -94,6 +94,7 @@ function isBackloggdGame(v: unknown): v is BackloggdGame {
     isLibraryStatus(g.status) &&
     (g.rating === null || (Number.isInteger(g.rating) && g.rating >= 1 && g.rating <= 10)) &&
     typeof g.mastered === "boolean" &&
+    (g.cover === undefined || g.cover === null || (isString(g.cover) && g.cover.length <= 500 && g.cover.startsWith("https://"))) &&
     Array.isArray(g.sessions) &&
     g.sessions.length <= 2000 &&
     g.sessions.every(

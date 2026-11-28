@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { parseBackloggdExport, type BackloggdSummary } from "@/lib/import/backloggd-parse";
 import { postBatch } from "@/lib/import/client";
-import { IMPORT_BATCH_SIZE, type BackloggdGame, type ImportItemResult } from "@/lib/import/types";
-import { statusLabel } from "@/lib/labels";
+import { IMPORT_BATCH_SIZE, type BackloggdGame, type GameCandidate, type ImportItemResult } from "@/lib/import/types";
+import { ficheHref, statusLabel } from "@/lib/labels";
 import type { LibraryStatus } from "@/lib/types";
 
 const RESULT_LABELS: Record<ImportItemResult["status"], string> = {
@@ -74,6 +74,7 @@ export function BackloggdImport({ disabled }: { disabled: boolean }) {
   const counts: Partial<Record<ImportItemResult["status"], number>> = {};
   for (const r of all) counts[r.status] = (counts[r.status] ?? 0) + 1;
   const notFound = all.filter((r) => r.status === "not_found");
+  const manual = all.filter((r) => r.manual);
   const errors = all.filter((r) => r.status === "error");
   const retry = data ? data.games.filter((g) => results[g.key]?.status === "error") : [];
 
@@ -182,6 +183,20 @@ export function BackloggdImport({ disabled }: { disabled: boolean }) {
               </ul>
             </div>
           )}
+          {manual.length > 0 && (
+            <div className="space-y-2 rounded-lg bg-sky-500/10 px-4 py-3 text-sky-100">
+              <p>
+                {manual.length} jeu{manual.length > 1 ? "x" : ""} absent{manual.length > 1 ? "s" : ""} d&apos;IGDB, ajouté
+                {manual.length > 1 ? "s" : ""} à la main avec {manual.length > 1 ? "leurs" : "sa"} sessions. Si l&apos;un d&apos;eux est en fait
+                un jeu proposé, choisis-le : tout son suivi y passe.
+              </p>
+              <ul className="space-y-2 text-xs">
+                {manual.map((r) => (
+                  <ManualGame key={r.key} result={r} />
+                ))}
+              </ul>
+            </div>
+          )}
           {errors.length > 0 && (
             <ul className="list-disc space-y-0.5 rounded-lg bg-red-500/10 py-3 pl-9 pr-4 text-xs text-red-200">
               {errors.slice(0, 20).map((r) => (
@@ -195,5 +210,69 @@ export function BackloggdImport({ disabled }: { disabled: boolean }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Jeu ajouté à la main par l'import, avec les jeux IGDB proches pour le remplacer (« C'est celui-ci »). */
+function ManualGame({ result }: { result: ImportItemResult }) {
+  const [state, setState] = useState<{ busy: string | null; done: { title: string; href: string } | null; error: string | null }>({
+    busy: null,
+    done: null,
+    error: null,
+  });
+  const candidates = result.gameCandidates ?? [];
+
+  async function choose(candidate: GameCandidate) {
+    if (!result.entryId) return;
+    setState({ busy: candidate.externalId, done: null, error: null });
+    try {
+      const res = await fetch(`/api/library/${result.entryId}/rematch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ externalId: candidate.externalId }),
+      });
+      const json = (await res.json()) as { href?: string; error?: string };
+      if (!res.ok || !json.href) throw new Error(json.error ?? "Remplacement impossible.");
+      setState({ busy: null, done: { title: candidate.title, href: json.href }, error: null });
+    } catch (e) {
+      setState({ busy: null, done: null, error: e instanceof Error ? e.message : "Remplacement impossible." });
+    }
+  }
+
+  return (
+    <li className="rounded-md bg-black/20 px-3 py-2">
+      {state.done ? (
+        <span>
+          ✓ {result.label} →{" "}
+          <Link href={state.done.href} className="underline">
+            {state.done.title}
+          </Link>
+        </span>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {result.ficheId ? (
+            <Link href={ficheHref("game", result.ficheId)} className="font-medium hover:underline">
+              {result.label}
+            </Link>
+          ) : (
+            <span className="font-medium">{result.label}</span>
+          )}
+          {candidates.length > 0 && result.entryId && <span className="text-sky-200/70">C&apos;est peut-être :</span>}
+          {result.entryId &&
+            candidates.map((c) => (
+              <button
+                key={c.externalId}
+                type="button"
+                disabled={state.busy !== null}
+                onClick={() => choose(c)}
+                className="rounded-md bg-white/10 px-2 py-1 hover:bg-white/20 disabled:opacity-50"
+              >
+                {state.busy === c.externalId ? "…" : `${c.title}${c.year ? ` (${c.year})` : ""}`}
+              </button>
+            ))}
+        </div>
+      )}
+      {state.error && <p className="mt-1 text-rose-300">{state.error}</p>}
+    </li>
   );
 }

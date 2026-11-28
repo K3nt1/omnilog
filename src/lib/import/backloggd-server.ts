@@ -3,8 +3,34 @@
 import { CURRENT_USER_ID, findImportLinks, upsertMediaStatement } from "../library";
 import { SourceError } from "../sources/http";
 import { findIgdbGamesByTitles, getIgdbGamesBySlugs, normalizeGameTitle } from "../sources/igdb";
-import { storedStatus, type MediaDetails } from "../types";
-import type { BackloggdGame, ImportItemResult } from "./types";
+import { manualDetails, newManualId } from "../manual";
+import { storedStatus, yearOf, type MediaDetails } from "../types";
+import type { BackloggdGame, GameCandidate, ImportItemResult } from "./types";
+
+/** Champs d'un jeu ajouté à la main d'après son seul titre (le reste se complète sur sa fiche). */
+const manualFields = (title: string) => ({
+  title: title.slice(0, 200),
+  release: null,
+  overview: null,
+  runtimeMinutes: null,
+  totalEpisodes: null,
+  seasons: [],
+  totalChapters: null,
+  totalVolumes: null,
+  platforms: [],
+});
+
+/** Parmi ces jeux IGDB, ceux déjà dans ta bibliothèque. */
+async function ownedGames(db: D1Database, externalIds: string[]): Promise<Set<string>> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.external_id FROM media m JOIN library_entries l ON l.media_id = m.id AND l.user_id = ?
+       WHERE m.type = 'game' AND m.source = 'igdb' AND m.external_id IN (SELECT value FROM json_each(?))`,
+    )
+    .bind(CURRENT_USER_ID, JSON.stringify([...new Set(externalIds)]))
+    .all<{ external_id: string }>();
+  return new Set(results.map((r) => r.external_id));
+}
 
 /** Clé d'une session au journal : un import relancé ne la duplique pas (deux sessions le même jour : :0, :1…). */
 export function sessionRefs(game: Pick<BackloggdGame, "slug" | "sessions">): string[] {
@@ -20,6 +46,10 @@ export async function importBackloggdBatch(env: CloudflareEnv, items: BackloggdG
   const db = env.DB;
   const known = await findImportLinks(db, "backloggd", items.map((i) => i.key));
   const results = new Map<string, ImportItemResult>();
+  /** Jeux absents d'IGDB ajoutés à la main : leur fiche et les jeux IGDB proches pour les remplacer. */
+  const manual = new Map<string, { ficheId: string; candidates: GameCandidate[] }>();
+  /** Jeux reliés à un jeu proche déjà dans ta bibliothèque : son titre. */
+  const linkedTo = new Map<string, string>();
   const mediaIds = new Map<string, number>();
   for (const item of items) {
     const link = known.get(item.key);
@@ -52,24 +82,48 @@ export async function importBackloggdBatch(env: CloudflareEnv, items: BackloggdG
       else missing.push(item);
     }
     // Deuxième chance : slug changé chez IGDB depuis l'ajout sur Backloggd → recherche par titre identique.
-    let byTitle = new Map<string, MediaDetails>();
+    let byTitle: Awaited<ReturnType<typeof findIgdbGamesByTitles>> = { found: new Map(), candidates: new Map() };
+    let titleSearchFailed = false;
     if (missing.length > 0) {
       try {
         byTitle = await findIgdbGamesByTitles(env, missing.map((i) => i.title));
       } catch (error) {
+        titleSearchFailed = true;
         console.error("Recherche IGDB par titre en échec", error);
       }
     }
+    // Jeu proche déjà dans ta bibliothèque (ajouté via la recherche) : c'est lui, pas besoin d'un jeu ajouté à la main.
+    const nearIds = [...byTitle.candidates.values()].flat().map((d) => d.externalId);
+    const owned = nearIds.length > 0 ? await ownedGames(db, nearIds) : new Set<string>();
     for (const item of missing) {
-      const details = byTitle.get(item.title.trim());
-      if (details) matched.push({ item, details });
-      else
-        results.set(item.key, {
-          key: item.key,
-          label: item.title,
-          status: "not_found",
-          message: "Introuvable chez IGDB : colle son lien Backloggd dans la recherche.",
-        });
+      const title = item.title.trim();
+      const exact = byTitle.found.get(title);
+      if (exact) {
+        matched.push({ item, details: exact });
+        continue;
+      }
+      const near = byTitle.candidates.get(title) ?? [];
+      const mine = near.find((d) => owned.has(d.externalId));
+      if (mine) {
+        matched.push({ item, details: mine });
+        linkedTo.set(item.key, mine.title);
+        continue;
+      }
+      if (titleSearchFailed) {
+        // IGDB indisponible : rien n'est créé à la main sur une erreur passagère, il suffira de relancer.
+        results.set(item.key, { key: item.key, label: item.title, status: "error", message: "IGDB ne répond pas : relance l'import." });
+        continue;
+      }
+      // Absent d'IGDB (jeu retiré de son API, mais encore sur Backloggd) : ajouté à la main, avec sa jaquette.
+      const details = manualDetails(
+        { ...manualFields(item.title), type: "game", posterUrl: item.cover ?? null },
+        newManualId(),
+      );
+      matched.push({ item, details });
+      manual.set(item.key, {
+        ficheId: details.externalId,
+        candidates: near.map((d) => ({ externalId: d.externalId, title: d.title, year: yearOf(d.releaseDate), posterUrl: d.posterUrl })),
+      });
     }
     if (matched.length > 0) {
       // Un jeu déjà au catalogue garde sa fiche complète (durée de vie…).
@@ -148,8 +202,38 @@ export async function importBackloggdBatch(env: CloudflareEnv, items: BackloggdG
       for (const item of items) if (mediaIds.has(item.key)) results.set(item.key, { key: item.key, label: item.title, status: "error", message });
     }
   }
-  return items.map(
-    (item) =>
-      results.get(item.key) ?? { key: item.key, label: item.title, status: known.has(item.key) ? "updated" : "imported" },
-  );
+  // Entrées des jeux ajoutés à la main : pour « C'est celui-ci » (remplacer par le jeu IGDB) depuis l'import.
+  const entryIds = new Map<number, number>();
+  const manualMedia = [...manual.keys()].flatMap((key) => (results.has(key) ? [] : [mediaIds.get(key)!]));
+  if (manualMedia.length > 0) {
+    const { results: rows } = await db
+      .prepare("SELECT id, media_id FROM library_entries WHERE user_id = ? AND media_id IN (SELECT value FROM json_each(?))")
+      .bind(CURRENT_USER_ID, JSON.stringify(manualMedia))
+      .all<{ id: number; media_id: number }>();
+    for (const r of rows) entryIds.set(r.media_id, r.id);
+  }
+  return items.map((item) => {
+    const done = results.get(item.key);
+    if (done) return done;
+    const added = manual.get(item.key);
+    if (added) {
+      return {
+        key: item.key,
+        label: item.title,
+        status: "imported",
+        manual: true,
+        message: "Absent d'IGDB : ajouté à la main.",
+        ficheId: added.ficheId,
+        entryId: entryIds.get(mediaIds.get(item.key)!),
+        gameCandidates: added.candidates,
+      };
+    }
+    const near = linkedTo.get(item.key);
+    return {
+      key: item.key,
+      label: item.title,
+      status: known.has(item.key) ? "updated" : "imported",
+      ...(near ? { message: `Relié à « ${near} », déjà dans ta bibliothèque.` } : {}),
+    };
+  });
 }

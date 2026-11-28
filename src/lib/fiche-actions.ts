@@ -130,7 +130,7 @@ export async function refreshUpcomingReleases(env: CloudflareEnv, limit = 2, now
     `SELECT DISTINCT m.type, m.external_id, m.fetched_at,
             (m.type = 'game' AND json_extract(m.extra_json, '$.releasePrecision') IS NULL) AS missing
      FROM media m INDEXED BY idx_media_release_date JOIN library_entries l ON l.media_id = m.id
-     WHERE m.release_date >= ? AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL AND ${due}
+     WHERE m.release_date >= ? AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL AND m.source <> 'manual' AND ${due}
        AND +l.user_id = ? AND l.status = 'planned'
      ORDER BY missing DESC, m.fetched_at
      LIMIT ?`,
@@ -139,7 +139,7 @@ export async function refreshUpcomingReleases(env: CloudflareEnv, limit = 2, now
   const undated = env.DB.prepare(
     `SELECT DISTINCT m.type, m.external_id, m.fetched_at, 0 AS missing
      FROM library_entries l JOIN media m ON m.id = l.media_id
-     WHERE l.user_id = ? AND l.status = 'planned' AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL
+     WHERE l.user_id = ? AND l.status = 'planned' AND m.type IN ('movie', 'game') AND m.external_id IS NOT NULL AND m.source <> 'manual'
        AND m.release_date IS NULL AND (m.fetched_at IS NULL OR m.fetched_at < ?)
      ORDER BY m.fetched_at
      LIMIT ?`,
