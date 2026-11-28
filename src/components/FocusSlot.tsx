@@ -5,6 +5,7 @@ import type { LibraryCard } from "@/lib/browse-shared";
 import { ficheHref, plannedLabel, positionLine, TYPE_SINGULAR } from "@/lib/labels";
 import type { MediaType } from "@/lib/types";
 import { useDraw } from "./DrawReveal";
+import { OwnedDrawSelect, useDrawOwned } from "./OwnedDrawSelect";
 import { useAction } from "./useAction";
 import { ReleaseText } from "./ReleaseText";
 
@@ -35,8 +36,10 @@ export function FocusSlot({
   large?: boolean;
 }) {
   const { run, busy, error } = useAction();
+  // Jeux : « Tirer au sort dans : PS5 / PC · Steam… » (choix gardé dans le navigateur, aussi pour « Relancer »).
+  const [owned, setOwned] = useDrawOwned(type);
   // Tirage au sort avec animation (affiches qui défilent puis s'arrêtent sur l'œuvre tirée).
-  const drawing = useDraw(type);
+  const drawing = useDraw(type, owned);
   const draw = () => void drawing.start();
   const list = plannedLabel(type).toLowerCase();
 
@@ -48,6 +51,8 @@ export function FocusSlot({
           <p className="text-sm text-white/60">Rien en ce moment.</p>
         </div>
         {plannedCount > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+          {type === "game" && <OwnedDrawSelect value={owned} onChange={setOwned} />}
           <button
             type="button"
             onClick={draw}
@@ -56,6 +61,7 @@ export function FocusSlot({
           >
             {drawing.busy ? "Tirage…" : `🎲 Tirer au sort dans ma ${list}`}
           </button>
+          </div>
         ) : (
           <p className="text-xs text-white/40">{plannedLabel(type)} vide</p>
         )}

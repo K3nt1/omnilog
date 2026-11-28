@@ -1,5 +1,6 @@
 // Lecture de la bibliothèque : grille filtrée et paginée, compteurs, pages par type.
 // Uniquement des lectures : aucune écriture D1.
+import { getOwnedFacets, ownedCondition, type OwnedFacet } from "./ownership";
 import { cachedVersioned, getVersions, type DataVersions } from "./data-version";
 import { CURRENT_USER_ID } from "./library";
 import { groupGenres, rawGenresFor } from "./genres";
@@ -195,6 +196,11 @@ function buildWhere(q: LibraryQuery, skip?: FacetKey): Where {
     clauses.push("EXISTS (SELECT 1 FROM json_each(m.extra_json, '$.platforms') pf WHERE pf.value = ?)");
     params.push(q.platform);
   }
+  if (q.owned) {
+    const owned = ownedCondition(q.owned);
+    clauses.push(owned.sql);
+    params.push(...owned.params);
+  }
   // Trier par nombre de visionnages n'a d'intérêt que pour les œuvres revues : on n'affiche que celles-là.
   if (q.sort === "visionnages") clauses.push(`${COMPLETIONS} >= 2`);
   if (q.rating === "aucune") clauses.push("l.rating IS NULL");
@@ -228,8 +234,10 @@ export interface LibraryPage {
   watchYears: Facet[];
   /** Tags du journal, du plus utilisé au moins utilisé. */
   tags: Facet[];
-  /** Plateformes (jeux uniquement). */
+  /** Plateformes de sortie (jeux uniquement). */
   platforms: Facet[];
+  /** « Possédé sur » : plateformes, launchers, abonnements, émulé (jeux uniquement). */
+  owned: OwnedFacet[];
 }
 
 const zeroCounts = <K extends string>(keys: readonly K[]) =>
@@ -387,7 +395,11 @@ export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize =
 }
 
 async function computeLibraryPage(db: D1Database, q: LibraryQuery, pageSize: number, versions: DataVersions): Promise<LibraryPage> {
-  const [counts, facets] = await Promise.all([getFilteredCounts(db, q, versions), getTypeFacets(db, q.type, versions)]);
+  const [counts, facets, owned] = await Promise.all([
+    getFilteredCounts(db, q, versions),
+    getTypeFacets(db, q.type, versions),
+    q.type === "game" ? getOwnedFacets(db, versions) : Promise.resolve([]),
+  ]);
   const { statusRows, typeRows } = counts;
   const { genreRows, yearRows, watchRows, tagRows, platformRows } = facets;
   const statusCounts = zeroCounts(LIBRARY_STATUSES);
@@ -429,6 +441,7 @@ async function computeLibraryPage(db: D1Database, q: LibraryQuery, pageSize: num
     watchYears: toFacets(watchRows).sort((a, b) => b.value.localeCompare(a.value)),
     tags: toFacets(tagRows),
     platforms: toFacets(platformRows),
+    owned,
   };
 }
 
