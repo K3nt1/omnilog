@@ -174,6 +174,13 @@ export async function updateManualWork(db: D1Database, externalId: string, input
         media.id,
       ),
   ];
+  // Les listes, filtres et menus gardés en cache ne relisent le catalogue qu'à un changement de version :
+  // une fiche modifiée (titre, plateformes, date…) doit les rafraîchir.
+  statements.push(
+    db
+      .prepare("UPDATE users SET catalog_version = catalog_version + 1, library_version = library_version + 1 WHERE id = ?")
+      .bind(CURRENT_USER_ID),
+  );
   if (input.type === "tv") {
     statements.push(db.prepare("DELETE FROM media_seasons WHERE media_id = ? AND season_number > ?").bind(media.id, input.seasons.length));
     const upsert = db.prepare(

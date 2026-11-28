@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { statusLabel, TYPE_SINGULAR } from "@/lib/labels";
 import { MEDIA_TYPES, statusesFor, type LibraryStatus, type MediaType } from "@/lib/types";
 
@@ -72,7 +72,7 @@ export function ManualForm({
   const [seasons, setSeasons] = useState(initial.seasons.join(", "));
   const [chapters, setChapters] = useState(initial.totalChapters?.toString() ?? "");
   const [volumes, setVolumes] = useState(initial.totalVolumes?.toString() ?? "");
-  const [platforms, setPlatforms] = useState(initial.platforms.join(", "));
+  const [platforms, setPlatforms] = useState<string[]>(initial.platforms);
   const [status, setStatus] = useState<LibraryStatus>("planned");
 
   function submit(event: FormEvent) {
@@ -92,10 +92,7 @@ export function ManualForm({
         .map(Number),
       totalChapters: toNumber(chapters),
       totalVolumes: toNumber(volumes),
-      platforms: platforms
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean),
+      platforms,
       ...(withStatus ? { status } : {}),
     });
   }
@@ -166,13 +163,8 @@ export function ManualForm({
             <input type="number" min={0} value={volumes} onChange={(e) => setVolumes(e.target.value)} className={field} />
           </label>
         )}
-        {type === "game" && (
-          <label className={label}>
-            <span className="text-white/70">Plateformes</span>
-            <input value={platforms} onChange={(e) => setPlatforms(e.target.value)} placeholder="PC, PlayStation" className={field} />
-          </label>
-        )}
       </div>
+      {type === "game" && <PlatformPicker value={platforms} onChange={setPlatforms} />}
       <label className={label}>
         <span className="text-white/70">Image (adresse https://…)</span>
         <input type="url" value={posterUrl} onChange={(e) => setPosterUrl(e.target.value)} placeholder="https://…" className={field} />
@@ -205,5 +197,85 @@ export function ManualForm({
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * Plateformes d'un jeu ajouté à la main, choisies parmi celles de ta bibliothèque (les mêmes noms que le filtre
+ * « Plateforme », donc le jeu y apparaît). Une plateforme absente de la liste peut quand même être ajoutée.
+ */
+function PlatformPicker({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+  const [known, setKnown] = useState<string[] | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/manuel/plateformes")
+      .then((res) => res.json() as Promise<{ platforms?: string[] }>)
+      .then((json) => {
+        if (!cancelled) setKnown(json.platforms ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setKnown([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggle = (p: string) => onChange(value.includes(p) ? value.filter((v) => v !== p) : [...value, p]);
+  const q = query.trim().toLowerCase();
+  const list = (known ?? []).filter((p) => !value.includes(p) && (!q || p.toLowerCase().includes(q)));
+  const exact = (known ?? []).some((p) => p.toLowerCase() === q) || value.some((p) => p.toLowerCase() === q);
+
+  return (
+    <div className="space-y-2 text-sm">
+      <span className="text-white/70">Plateformes</span>
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-2" aria-label="Plateformes choisies">
+          {value.map((p) => (
+            <li key={p}>
+              <button type="button" onClick={() => toggle(p)} className="rounded-full bg-sky-500/20 px-3 py-1 text-sky-100 ring-1 ring-sky-400/40 hover:bg-sky-500/30">
+                {p} ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Chercher une plateforme (PS1, Switch, PC…)"
+        aria-label="Chercher une plateforme"
+        className={field}
+      />
+      {known === null ? (
+        <p className="text-xs text-white/50">Chargement des plateformes…</p>
+      ) : (
+        <ul className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+          {list.slice(0, 60).map((p) => (
+            <li key={p}>
+              <button type="button" onClick={() => toggle(p)} className="rounded-full bg-white/5 px-3 py-1 text-white/80 ring-1 ring-white/10 hover:bg-white/10">
+                + {p}
+              </button>
+            </li>
+          ))}
+          {q && !exact && (
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  toggle(query.trim());
+                  setQuery("");
+                }}
+                className="rounded-full border border-dashed border-white/20 px-3 py-1 text-white/60 hover:text-white"
+              >
+                + Ajouter « {query.trim()} »
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
