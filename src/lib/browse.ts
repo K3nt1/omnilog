@@ -368,6 +368,12 @@ async function getTypeFacets(
  * Une page de la grille : un lot de compteurs (statut, type, genre, années, tags, plateformes), puis les affiches.
  * `pageSize` dépend de l'affichage (petites affiches = plus d'œuvres par page).
  */
+/** Plateformes des jeux de ta bibliothèque, les plus fréquentes d'abord : celles du filtre « Plateforme ». */
+export async function getGamePlatforms(db: D1Database): Promise<string[]> {
+  const facets = await getTypeFacets(db, "game", await getVersions(db));
+  return facets.platformRows.map((r) => r.key);
+}
+
 export async function getLibraryPage(db: D1Database, q: LibraryQuery, pageSize = PAGE_SIZE): Promise<LibraryPage> {
   const versions = await getVersions(db);
   // Page entière gardée jusqu'au prochain changement (une heure au plus, pour les sorties sur les vignettes).
