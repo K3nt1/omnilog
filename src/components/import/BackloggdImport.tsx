@@ -186,9 +186,11 @@ export function BackloggdImport({ disabled }: { disabled: boolean }) {
           {manual.length > 0 && (
             <div className="space-y-2 rounded-lg bg-sky-500/10 px-4 py-3 text-sky-100">
               <p>
-                {manual.length} jeu{manual.length > 1 ? "x" : ""} absent{manual.length > 1 ? "s" : ""} d&apos;IGDB, ajouté
-                {manual.length > 1 ? "s" : ""} à la main avec {manual.length > 1 ? "leurs" : "sa"} sessions. Si l&apos;un d&apos;eux est en fait
-                un jeu proposé, choisis-le : tout son suivi y passe.
+                {manual.length > 1
+                  ? `${manual.length} jeux ne sont plus fournis par IGDB : ils sont dans ta bibliothèque, ajoutés à la main avec leurs sessions.`
+                  : "1 jeu n'est plus fourni par IGDB : il est dans ta bibliothèque, ajouté à la main avec ses sessions."}{" "}
+                <strong>Tu n&apos;as rien à faire.</strong> Si un jeu proposé à côté d&apos;un titre est en fait le bon, clique dessus : le
+                suivi y passe.
               </p>
               <ul className="space-y-2 text-xs">
                 {manual.map((r) => (
@@ -251,13 +253,17 @@ function ManualGame({ result }: { result: ImportItemResult }) {
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           {result.ficheId ? (
-            <Link href={ficheHref("game", result.ficheId)} className="font-medium hover:underline">
+            <Link href={ficheHref("game", result.ficheId)} className="font-medium underline decoration-white/30 hover:decoration-white">
               {result.label}
             </Link>
           ) : (
             <span className="font-medium">{result.label}</span>
           )}
-          {candidates.length > 0 && result.entryId && <span className="text-sky-200/70">C&apos;est peut-être :</span>}
+          {candidates.length > 0 && result.entryId ? (
+            <span className="text-sky-200/70">C&apos;est peut-être :</span>
+          ) : (
+            <span className="text-sky-200/50">aucun jeu proche chez IGDB</span>
+          )}
           {result.entryId &&
             candidates.map((c) => (
               <button
