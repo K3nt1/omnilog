@@ -341,7 +341,7 @@ async function loadQueue(db: D1Database, kinds: number, now: number): Promise<Ne
       .prepare(
         `SELECT DISTINCT m.id, m.type, m.news_checked_at, m.release_date, l.status
          FROM library_entries l JOIN media m ON m.id = l.media_id
-         WHERE l.user_id = ? AND m.external_id IS NOT NULL AND (${wanted.join(" OR ")})`,
+         WHERE l.user_id = ? AND m.external_id IS NOT NULL AND m.source <> 'manual' AND (${wanted.join(" OR ")})`,
       )
       .bind(CURRENT_USER_ID)
       .all<{ id: number; type: MediaType; news_checked_at: string | null; release_date: string | null; status: string }>();
@@ -372,7 +372,8 @@ export async function checkDueNews(env: CloudflareEnv, limit = 8, now = Date.now
     ({ results } = await env.DB.prepare(
       `SELECT DISTINCT m.id, m.type, m.external_id, m.title, m.news_state_json, m.release_date, l.status
        FROM media m JOIN library_entries l ON l.media_id = m.id
-       WHERE m.id IN (SELECT value FROM json_each(?)) AND +l.user_id = ? AND m.external_id IS NOT NULL AND (${wanted.join(" OR ")})`,
+       WHERE m.id IN (SELECT value FROM json_each(?)) AND +l.user_id = ? AND m.external_id IS NOT NULL AND m.source <> 'manual'
+         AND (${wanted.join(" OR ")})`,
     )
       .bind(JSON.stringify(due.map(([id]) => id)), CURRENT_USER_ID)
       .all<DueRow & { status: string; release_date: string | null }>());

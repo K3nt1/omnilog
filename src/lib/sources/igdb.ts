@@ -226,32 +226,43 @@ interface IgdbNamedGame extends IgdbGame {
   alternative_names?: { name: string }[];
 }
 
+/** Recherches par titre au plus par appel (une requête chacune, 4 à la fois : limite d'IGDB et du Worker). */
+export const MAX_TITLE_SEARCHES = 30;
+
 /**
  * Deuxième chance pour les jeux introuvables par slug (slug changé chez IGDB depuis l'ajout sur Backloggd) :
- * recherche par titre, versions et DLC compris, 10 titres par requête (multiquery IGDB).
+ * recherche par titre, versions et DLC compris, une requête par titre (comme la recherche du site, qui les trouve).
  * Seul un titre identique (nom ou nom alternatif, sans accents ni ponctuation) est retenu : jamais de jeu « approchant ».
+ * Les autres titres reçoivent jusqu'à 3 jeux proches, à proposer (jamais reliés d'office).
+ * `searched` : les titres réellement cherchés (au plus MAX_TITLE_SEARCHES).
  */
-export async function findIgdbGamesByTitles(env: IgdbCredentials, titles: string[]): Promise<Map<string, MediaDetails>> {
+export async function findIgdbGamesByTitles(
+  env: IgdbCredentials,
+  titles: string[],
+): Promise<{ found: Map<string, MediaDetails>; candidates: Map<string, MediaDetails[]>; searched: Set<string> }> {
   const found = new Map<string, MediaDetails>();
-  const unique = [...new Set(titles.map((t) => t.trim()).filter((t) => t.length > 0 && t.length <= 200))];
+  /** Jeux proches (3 au plus) pour les titres sans correspondance exacte : « C'est celui-ci ». */
+  const candidates = new Map<string, MediaDetails[]>();
+  const unique = [...new Set(titles.map((t) => t.trim()).filter((t) => t.length > 0 && t.length <= 200))].slice(0, MAX_TITLE_SEARCHES);
   const none = { hastily: null, normally: null, completely: null };
-  for (let start = 0; start < unique.length; start += 10) {
-    const chunk = unique.slice(start, start + 10);
-    const body = chunk
-      .map((title, i) => `query games "${i}" { fields ${GAME_FIELDS}, alternative_names.name; search "${escapeQuery(title)}"; limit 10; };`)
-      .join("\n");
-    const answers = await igdb<{ name: string; result: IgdbNamedGame[] }[]>(env, "multiquery", body);
-    for (const answer of answers) {
-      const title = chunk[Number(answer.name)];
-      if (title === undefined) continue;
+  for (let start = 0; start < unique.length; start += 4) {
+    const chunk = unique.slice(start, start + 4);
+    const answers = await Promise.all(
+      chunk.map((title) =>
+        igdb<IgdbNamedGame[]>(env, "games", `fields ${GAME_FIELDS}, alternative_names.name; search "${escapeQuery(title)}"; limit 10;`),
+      ),
+    );
+    answers.forEach((result, i) => {
+      const title = chunk[i];
       const wanted = normalizeGameTitle(title);
-      const match = answer.result.find(
+      const match = result.find(
         (g) => normalizeGameTitle(g.name) === wanted || (g.alternative_names ?? []).some((a) => normalizeGameTitle(a.name) === wanted),
       );
       if (match) found.set(title, gameDetails(match, none));
-    }
+      else if (result.length > 0) candidates.set(title, result.slice(0, 3).map((g) => gameDetails(g, none)));
+    });
   }
-  return found;
+  return { found, candidates, searched: new Set(unique) };
 }
 
 /** Slug d'un lien de jeu Backloggd ou IGDB collé dans la recherche (« backloggd.com/games/hades/ »), sinon null. */

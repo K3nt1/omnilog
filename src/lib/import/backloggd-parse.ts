@@ -14,12 +14,24 @@ interface RawGame {
   rating?: number | null;
   statusTitle?: string | null;
   mastered?: boolean;
+  cover?: string | null;
 }
 
 interface RawSession {
   slug?: string;
   date?: string;
   minutes?: number | null;
+}
+
+/** Jaquette : adresse https seulement (affichée telle quelle), sinon rien. */
+function coverUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 500) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface BackloggdSummary {
@@ -90,10 +102,11 @@ export function parseBackloggdExport(text: string): BackloggdSummary {
       key: `bkl:${raw.slug}`,
       slug: raw.slug,
       gameId: raw.id && /^\d{1,10}$/.test(raw.id) ? Number(raw.id) : null,
-      title: (raw.title ?? raw.slug).slice(0, 300),
+      title: (raw.title?.trim() || raw.slug).slice(0, 300),
       status,
       rating,
       mastered: raw.mastered === true,
+      cover: coverUrl(raw.cover),
       sessions: (sessionsBySlug.get(raw.slug) ?? []).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2000),
     });
   }

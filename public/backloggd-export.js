@@ -43,8 +43,17 @@
   /** Jeux d'une page de liste : identifiant, slug (celui d'IGDB), titre et état de ton log. */
   function parseGames(html) {
     const games = new Map();
-    const card = /game_id="(\d+)"[^>]*>\s*<a href="\/games\/([^/"]+)\/"[\s\S]*?alt="([^"]*)"/g;
-    for (const m of html.matchAll(card)) games.set(m[1], { id: m[1], slug: decode(m[2]), title: decode(m[3]) });
+    // Chaque carte de jeu commence à game_id="…" : on la lit jusqu'à la suivante (titre et jaquette de ce jeu-là).
+    for (const part of html.split('game_id="').slice(1)) {
+      const m = part.match(/^(\d+)"[^>]*>\s*<a href="\/games\/([^/"]+)\/"/);
+      if (!m) continue;
+      const img = part.match(/<img[^>]*>/)?.[0] ?? "";
+      // Titre : texte alternatif de la jaquette, sinon le titre écrit à la place d'une jaquette absente.
+      const title = img.match(/alt="([^"]*)"/)?.[1] ?? part.match(/game-text-centered[^>]*>\s*([^<]+?)\s*</)?.[1] ?? "";
+      // Jaquette : utile si IGDB ne fournit plus le jeu (il est alors ajouté à la main avec elle).
+      const src = decode(img.match(/data-src="([^"]+)"/)?.[1] ?? img.match(/\ssrc="([^"]+)"/)?.[1] ?? "");
+      games.set(m[1], { id: m[1], slug: decode(m[2]), title: decode(title), cover: src.startsWith("https://") ? src : null });
+    }
     const preloaded = /id="preloaded-log-(\d+)">\s*<div([^>]*)>/g;
     for (const m of html.matchAll(preloaded)) {
       const game = games.get(m[1]);
