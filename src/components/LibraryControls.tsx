@@ -1,5 +1,7 @@
 "use client";
 
+import type { OwnedFacet } from "@/lib/ownership";
+import { ownedKeyLabel } from "@/lib/ownership-shared";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { repeatLabel, SORT_LABELS, type Facet, type LibraryQuery, type RatingFilter, type SortKey } from "@/lib/browse-shared";
@@ -26,6 +28,8 @@ interface Props {
   watchYears: Facet[];
   tags: Facet[];
   platforms: Facet[];
+  /** « Possédé sur » (jeux). */
+  owned?: OwnedFacet[];
 }
 
 /** « Vu en », « Lu en », « Joué en » selon le type. */
@@ -60,6 +64,7 @@ export function LibraryControls({
   watchYears = [],
   tags = [],
   platforms = [],
+  owned = [],
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -182,13 +187,29 @@ export function LibraryControls({
         <select
           value={query.platform ?? ""}
           onChange={(e) => go({ platform: e.target.value || null })}
-          aria-label="Filtrer par plateforme"
+          aria-label="Filtrer par plateforme de sortie"
           className={field}
         >
-          <option value="">Toutes les plateformes</option>
+          <option value="">Sorti sur : toutes</option>
           {withCurrent(platforms, query.platform).map((p) => (
             <option key={p.value} value={p.value}>
-              {p.value} ({nf.format(p.count)})
+              Sorti sur {p.value} ({nf.format(p.count)})
+            </option>
+          ))}
+        </select>
+      )}
+      {query.type === "game" && (owned.length > 0 || query.owned) && (
+        <select
+          value={query.owned ?? ""}
+          onChange={(e) => go({ owned: e.target.value || null })}
+          aria-label="Filtrer par plateforme possédée"
+          className={field}
+        >
+          <option value="">Possédé sur : tout</option>
+          {query.owned && !owned.some((o) => o.value === query.owned) && <option value={query.owned}>Possédé sur {ownedKeyLabel(query.owned)}</option>}
+          {owned.map((o) => (
+            <option key={o.value} value={o.value}>
+              Possédé sur {o.label} ({nf.format(o.count)})
             </option>
           ))}
         </select>

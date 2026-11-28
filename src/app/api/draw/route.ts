@@ -5,20 +5,23 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { drawRandom } from "@/lib/progress";
+import { isOwnedKey, ownedKeyLabel } from "@/lib/ownership-shared";
 import { isMediaType } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
-  let body: { type?: unknown };
+  let body: { type?: unknown; owned?: unknown };
   try {
-    body = ((await request.json()) ?? {}) as { type?: unknown };
+    body = ((await request.json()) ?? {}) as { type?: unknown; owned?: unknown };
   } catch {
     return NextResponse.json({ error: "Corps de requête JSON invalide." }, { status: 400 });
   }
   if (!isMediaType(body.type)) return NextResponse.json({ error: "Type invalide." }, { status: 400 });
+  const owned = typeof body.owned === "string" && isOwnedKey(body.owned) ? body.owned : null;
   const { env } = getCloudflareContext();
-  const entryId = await drawRandom(env.DB, body.type);
+  const entryId = await drawRandom(env.DB, body.type, owned);
   if (entryId === null) {
-    return NextResponse.json({ error: "Rien à tirer au sort : la liste est vide." }, { status: 404 });
+    const where = owned ? ` (possédé sur ${ownedKeyLabel(owned)})` : "";
+    return NextResponse.json({ error: `Rien à tirer au sort${where} : la liste est vide.` }, { status: 404 });
   }
   // Pour l'animation : l'œuvre tirée et quelques autres affiches de la liste, qui défilent avant elle.
   const [pickedRows, otherRows] = await env.DB.batch<{ title: string; poster_url: string | null }>([

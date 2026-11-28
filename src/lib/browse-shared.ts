@@ -70,8 +70,10 @@ export interface LibraryQuery {
   withReview: boolean;
   /** Tag d'une ligne du journal (« vo », « cinoche »…). */
   tag: string | null;
-  /** Plateforme d'un jeu (abréviation IGDB : « PS5 », « PC »…). */
+  /** Plateforme de sortie d'un jeu (abréviation IGDB : « PS5 », « PC »…). */
   platform: string | null;
+  /** Jeu possédé sur… (« p:PS5 », « s:steam », « a:game_pass », « e » : voir ownership-shared.ts). */
+  owned: string | null;
   search: string;
   sort: SortKey;
   direction: SortDirection;

@@ -1,4 +1,5 @@
 // Suivi au quotidien : progression (épisode, chapitre, session, pause, fin), focus, tirage au sort, annulation.
+import { ownedCondition } from "./ownership";
 import { allIssuesRead, nextUnreadIssue } from "./comic-progress";
 import { CURRENT_USER_ID } from "./library";
 import type { LibraryStatus, MediaType } from "./types";
@@ -639,22 +640,26 @@ export async function setFocus(db: D1Database, entryId: number, focus: boolean):
  * Relancer : l'œuvre tirée précédemment perd sa marque « tirée au sort » et le focus passe à la nouvelle.
  * Renvoie l'entrée tirée, ou null si la watchlist / le backlog est vide.
  */
-export async function drawRandom(db: D1Database, type: MediaType): Promise<number | null> {
+export async function drawRandom(db: D1Database, type: MediaType, owned: string | null = null): Promise<number | null> {
+  // Jeux : seulement ceux possédés sur cette plateforme / ce launcher / cet abonnement (« Tirer au sort dans : PS5 »).
+  const filter = type === "game" && owned ? ownedCondition(owned) : null;
   const [drawnRows, pickRows] = await db.batch<{ id: number }>([
     db
       .prepare("SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND drawn_at IS NOT NULL")
       .bind(CURRENT_USER_ID, type),
     db
       .prepare(
-        `SELECT id FROM library_entries WHERE user_id = ? AND media_type = ? AND status = 'planned' AND substatus IS NULL AND drawn_at IS NULL
+        `SELECT l.id FROM library_entries l
+         WHERE l.user_id = ? AND l.media_type = ? AND l.status = 'planned' AND l.substatus IS NULL AND l.drawn_at IS NULL
+           ${filter ? `AND ${filter.sql}` : ""}
          ORDER BY random() LIMIT 1`,
       )
-      .bind(CURRENT_USER_ID, type),
+      .bind(CURRENT_USER_ID, type, ...(filter?.params ?? [])),
   ]);
   const picked = pickRows.results[0]?.id ?? null;
   const previous = drawnRows.results.map((r) => r.id);
   // Rien d'autre à tirer : on garde le tirage actuel (ou rien s'il n'y en a pas).
-  if (picked === null) return previous[0] ?? null;
+  if (picked === null) return filter ? null : (previous[0] ?? null);
 
   const statements: D1PreparedStatement[] = [];
   if (previous.length > 0) {

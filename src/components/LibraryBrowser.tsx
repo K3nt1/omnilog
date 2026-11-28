@@ -113,6 +113,7 @@ export function LibraryBrowser({ basePath, query, data, fixedType, prefs }: Prop
         watchYears={data.watchYears}
         tags={data.tags}
         platforms={data.platforms}
+        owned={data.owned}
       />
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-white/60">

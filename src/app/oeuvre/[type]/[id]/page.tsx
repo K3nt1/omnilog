@@ -8,6 +8,7 @@ import { IssueList } from "@/components/fiche/IssueList";
 import { ProgressPanel } from "@/components/fiche/ProgressPanel";
 import { Journal } from "@/components/fiche/Journal";
 import { PublisherField } from "@/components/fiche/PublisherField";
+import { OwnershipPanel } from "@/components/fiche/OwnershipPanel";
 import { SeasonList } from "@/components/fiche/SeasonList";
 import { SeasonReviewPrompt } from "@/components/fiche/SeasonReviews";
 import { TrackingPanel } from "@/components/fiche/TrackingPanel";
@@ -544,6 +545,13 @@ export default async function FichePage({ params }: Props) {
                 </li>
               ))}
             </ul>
+          </Section>
+        )}
+
+        {type === "game" && entry && (
+          <Section title="Où je l'ai">
+            {/* Abréviations enregistrées (« PS5 », « PC ») : les mêmes noms que les filtres « Sorti sur » et « Possédé sur ». */}
+            <OwnershipPanel entryId={entry.id} releasePlatforms={stored.media?.platforms.length ? stored.media.platforms : f.platforms} initial={stored.ownership} />
           </Section>
         )}
 
