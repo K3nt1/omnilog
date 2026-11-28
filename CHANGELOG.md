@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.3](https://github.com/K3nt1/omnilog/compare/v0.13.2...v0.13.3) (2026-11-28)
+
+
+### 🐛 Corrections
+
+* **import:** jeux absents d'IGDB ajoutés à la main, ajout manuel pour tous les types ([#131](https://github.com/K3nt1/omnilog/issues/131)) ([3e31390](https://github.com/K3nt1/omnilog/commit/3e31390c9a1f0fa3b7a318ebd8c7f9b1a58a9be4))
+* **import:** jeux proches retrouvés et jeux à la main relancés ([#132](https://github.com/K3nt1/omnilog/issues/132)) ([635f8ed](https://github.com/K3nt1/omnilog/commit/635f8edc78ea5f4787acbd95b5c402e3706d5774))
+
 ## [0.13.2](https://github.com/K3nt1/omnilog/compare/v0.13.1...v0.13.2) (2026-11-27)
 
 
